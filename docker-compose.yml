@@ -1,0 +1,80 @@
+# Docker Compose para Backend EPAGAL Latacunga
+version: '3.8'
+
+services:
+  # Servicio Backend FastAPI
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: epagal-backend
+    ports:
+      - "8081:8081"
+    environment:
+      - DB_URL=${DB_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - RABBITMQ_URL=${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
+      - PORT=8081
+    volumes:
+      # Montar el código para desarrollo (comentar en producción)
+      - .:/app
+      # Persistir datos de OSRM
+      - ./osrm-ecuador:/app/osrm-ecuador
+    depends_on:
+      - osrm
+    restart: unless-stopped
+    networks:
+      - epagal-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Servicio OSRM
+  osrm:
+    image: osrm/osrm-backend:latest
+    container_name: epagal-osrm
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./osrm-ecuador:/data
+    command: osrm-routed --algorithm mld /data/ecuador-latest.osrm --max-table-size 10000
+    restart: unless-stopped
+    networks:
+      - epagal-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Servicio RabbitMQ (opcional, si se usa para notificaciones)
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: epagal-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=tesis
+      - RABBITMQ_DEFAULT_PASS=tesis
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    restart: unless-stopped
+    networks:
+      - epagal-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  epagal-network:
+    driver: bridge
+
+volumes:
+  rabbitmq-data:
+    driver: local

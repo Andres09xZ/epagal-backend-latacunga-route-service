@@ -1,0 +1,18 @@
+# Docker Compose para Producción
+# Uso: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+version: '3.8'
+
+services:
+  backend:
+    # No montar volumen de código en producción
+    volumes:
+      - ./osrm-ecuador:/app/osrm-ecuador
+    environment:
+      - PYTHONUNBUFFERED=1
+      - ENVIRONMENT=production
+    # Usar comando optimizado para producción
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8081 --workers 4 --log-level warning
+    
+  osrm:
+    # Configuración optimizada para producción
+    command: osrm-routed --algorithm mld /data/ecuador-latest.osrm --max-table-size 10000 --threads 4
