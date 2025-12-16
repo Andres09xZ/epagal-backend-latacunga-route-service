@@ -20,17 +20,18 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# Configuración CORS para aplicaciones móviles y frontend
-# Orígenes permitidos - configurable por ambiente
-allowed_origins = os.getenv(
-    "ALLOWED_ORIGINS",
-    # Valores por defecto para desarrollo
-    "http://localhost:3000,http://localhost:8080,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:8080,capacitor://localhost,ionic://localhost,http://localhost"
-).split(",")
-
-# En desarrollo, permitir todos los orígenes
-if os.getenv("ENV", "development") == "development":
-    allowed_origins = ["*"]
+# Configuración CORS - Orígenes permitidos (hardcoded para producción)
+allowed_origins = [
+    "https://tesis-1-z78t.onrender.com",  # Frontend en producción
+    "http://localhost:3000",               # React/Vue local
+    "http://localhost:8080",               # Desarrollo local
+    "http://localhost:5173",               # Vite local
+    "http://127.0.0.1:3000",              # Localhost alternativo
+    "http://127.0.0.1:8080",              # Localhost alternativo
+    "capacitor://localhost",               # Capacitor iOS/Android
+    "ionic://localhost",                   # Ionic
+    "http://localhost",                    # Genérico local
+]
 
 app.add_middleware(
     CORSMiddleware,
@@ -47,7 +48,7 @@ app.add_middleware(
         "Cache-Control",
         "X-Requested-With"
     ],
-    expose_headers=["Content-Length", "X-Total-Count"],
+    expose_headers=["Content-Length", "X-Total-Count", "Content-Disposition"],
     max_age=600,  # Cache preflight requests por 10 minutos
 )
 

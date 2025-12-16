@@ -1,0 +1,25 @@
+services:
+  # Backend FastAPI Service
+  - type: web
+    name: epagal-backend-latacunga
+    env: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    region: oregon
+    healthCheckPath: /health
+    envVars:
+      - key: DB_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: RABBITMQ_URL
+        value: amqp://guest:guest@localhost:5672/
+      - key: PORT
+        value: 8081
+      - key: OSRM_URL
+        value: http://router.project-osrm.org
+      - key: ALLOWED_ORIGINS
+        value: https://tesis-1-z78t.onrender.com,http://localhost:3000,capacitor://localhost,ionic://localhost
+      - key: ENV
+        value: production
