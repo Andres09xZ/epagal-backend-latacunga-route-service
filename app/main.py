@@ -52,9 +52,9 @@ app.add_middleware(
     max_age=600,  # Cache preflight requests por 10 minutos
 )
 
-# Incluir routers
-app.include_router(auth.router)
-app.include_router(conductores.router)
+# Incluir routers - todos con prefijo /api para unificar
+app.include_router(auth.router, prefix="/api")
+app.include_router(conductores.router, prefix="/api")
 app.include_router(incidencias.router, prefix="/api")
 app.include_router(rutas.router, prefix="/api")
 
