@@ -24,13 +24,16 @@ app = FastAPI(
 allowed_origins = [
     "https://tesis-1-z78t.onrender.com",  # Frontend en producción
     "http://localhost:3000",               # React/Vue local
+    "http://localhost:8000",               # Dashboard local
     "http://localhost:8080",               # Desarrollo local
     "http://localhost:5173",               # Vite local
     "http://127.0.0.1:3000",              # Localhost alternativo
+    "http://127.0.0.1:8000",              # Dashboard alternativo
     "http://127.0.0.1:8080",              # Localhost alternativo
     "capacitor://localhost",               # Capacitor iOS/Android
     "ionic://localhost",                   # Ionic
     "http://localhost",                    # Genérico local
+    "null",                                # Archivos HTML locales (file://)
 ]
 
 app.add_middleware(

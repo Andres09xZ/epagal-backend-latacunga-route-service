@@ -272,14 +272,18 @@ class IncidenciaService:
         return incidencia, ruta_generada
 
     @staticmethod
-    def obtener_incidencias_pendientes_por_zona(
+    def obtener_incidencias_validadas_por_zona(
         db: Session,
         zona: str
     ) -> List[Incidencia]:
-        """Obtiene todas las incidencias pendientes de una zona"""
+        """Obtiene todas las incidencias VALIDADAS de una zona
+
+        Nota: Solo las incidencias con estado 'validada' son consideradas
+        para la generación automática de rutas.
+        """
         return db.query(Incidencia).filter(
             Incidencia.zona == zona,
-            Incidencia.estado == 'pendiente'
+            Incidencia.estado == 'validada'
         ).all()
 
     @staticmethod
@@ -287,8 +291,11 @@ class IncidenciaService:
         db: Session,
         zona: str
     ) -> int:
-        """Calcula la suma total de gravedad pendiente en una zona"""
-        incidencias = IncidenciaService.obtener_incidencias_pendientes_por_zona(db, zona)
+        """Calcula la suma total de gravedad de incidencias validadas en una zona
+
+        Solo las incidencias validadas (estado='validada') cuentan para el umbral.
+        """
+        incidencias = IncidenciaService.obtener_incidencias_validadas_por_zona(db, zona)
         return sum(inc.gravedad for inc in incidencias)
 
     @staticmethod
@@ -307,11 +314,80 @@ class IncidenciaService:
         # Obtener umbral desde configuración
         config = db.query(Config).filter(Config.clave == 'umbral_gravedad').first()
         umbral = int(config.valor) if config else 20
-        
+
+        # Solo se cuentan incidencias validadas
         suma_gravedad = IncidenciaService.calcular_suma_gravedad_zona(db, zona)
-        
+
         # Debe ser estrictamente mayor (>) no mayor o igual (>=)
         return suma_gravedad > umbral, suma_gravedad
+
+    @staticmethod
+    def validar_incidencia(
+        db: Session,
+        incidencia_id: int,
+        generar_ruta_auto: bool = True
+    ) -> Tuple[Incidencia, Optional[RutaGenerada]]:
+        """
+        Marca una incidencia como 'validada' (control por administrador)
+
+        Si generar_ruta_auto es True, tras validar se verifica el umbral y se
+        puede generar una ruta automáticamente (mismo comportamiento que al crear
+        rutas pero solo considerando incidencias validadas).
+        """
+        incidencia = db.query(Incidencia).filter(Incidencia.id == incidencia_id).first()
+        if not incidencia:
+            raise ValueError(f"Incidencia {incidencia_id} no encontrada")
+
+        # Actualizar estado a 'validada'
+        incidencia.estado = 'validada'
+        db.commit()
+        db.refresh(incidencia)
+
+        ruta_generada = None
+        if generar_ruta_auto:
+            # Importar aquí para evitar dependencia circular
+            from app.services.ruta_service import RutaService
+            from app.services.notificacion_service import NotificacionService
+
+            ruta_service = RutaService()
+            zona = incidencia.zona
+
+            # Verificar si hay rutas planeadas en la zona
+            rutas_planeadas = ruta_service.verificar_rutas_planeadas_zona(db, zona)
+
+            if rutas_planeadas:
+                # Evaluar si se necesita recalcular (incidencia validada puede ser crítica)
+                debe_recalcular = ruta_service.evaluar_necesidad_recalculo(db, zona, incidencia.gravedad)
+                if debe_recalcular:
+                    ruta_generada = ruta_service.recalcular_ruta_zona(
+                        db,
+                        zona,
+                        motivo=f"Incidencia validada {incidencia.tipo} (gravedad {incidencia.gravedad})"
+                    )
+                    if ruta_generada:
+                        NotificacionService.notificar_nueva_ruta(
+                            ruta_generada.id,
+                            zona,
+                            ruta_generada.camiones_usados,
+                            ruta_generada.suma_gravedad,
+                            es_recalculo=True
+                        )
+            else:
+                # No hay rutas planeadas: verificar umbral con incidencias validadas
+                suma_gravedad = IncidenciaService.calcular_suma_gravedad_zona(db, zona)
+                supera, umbral = ruta_service.verificar_supera_umbral(db, zona, suma_gravedad)
+                if supera:
+                    ruta_generada = ruta_service.generar_ruta_automatica(db, zona)
+                    if ruta_generada:
+                        NotificacionService.notificar_nueva_ruta(
+                            ruta_generada.id,
+                            zona,
+                            ruta_generada.camiones_usados,
+                            ruta_generada.suma_gravedad,
+                            es_recalculo=False
+                        )
+
+        return incidencia, ruta_generada
 
     @staticmethod
     def obtener_estadisticas(db: Session) -> dict:

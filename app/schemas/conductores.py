@@ -183,8 +183,8 @@ class ConductorResponse(ConductorBase):
     id: int
     usuario_id: int
     estado: EstadoConductor
-    fecha_contratacion: datetime
-    created_at: datetime
+    fecha_contratacion: Optional[datetime] = None
+    created_at: Optional[datetime] = None
     
     # Datos del usuario relacionado
     username: Optional[str] = None
@@ -231,6 +231,8 @@ class AsignacionCreate(BaseModel):
     conductor_id: int = Field(..., gt=0)
     camion_tipo: str = Field(..., pattern=r'^(lateral|posterior)$')
     camion_id: Optional[str] = Field(None, max_length=20, description="Placa del camión")
+    # Opcional: fecha de inicio programada para la asignación (horario)
+    fecha_inicio: Optional[datetime] = None
     
     model_config = {
         "json_schema_extra": {

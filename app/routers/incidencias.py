@@ -26,7 +26,7 @@ router = APIRouter(
 @router.post("/", response_model=IncidenciaResponse, status_code=status.HTTP_201_CREATED)
 def crear_incidencia(
     incidencia: IncidenciaCreate,
-    auto_generar_ruta: bool = Query(True, description="Si True, genera ruta automáticamente al superar umbral"),
+    auto_generar_ruta: bool = Query(False, description="Si True, genera ruta automáticamente al superar umbral (usar False para flujo con validación admin)"),
     db: Session = Depends(get_db)
 ):
     """
@@ -37,13 +37,14 @@ def crear_incidencia(
     - Clasifica zona automáticamente (oriental/occidental)
     - Calcula ventana de atención según tipo
     - Convierte coordenadas a UTM
-    - Verifica umbral y genera ruta automáticamente si se supera (> 20 puntos)
+    - **Estado inicial: PENDIENTE** (requiere validación del admin)
+    - La ruta se genera cuando el admin valida la incidencia (POST /api/incidencias/{id}/validate)
     
     Args:
-        auto_generar_ruta: Si False, no genera ruta automática (útil para tests)
+        auto_generar_ruta: Si True, genera ruta automática (legacy). Por defecto False para flujo con validación
     
     Returns:
-        Incidencia creada con información adicional en headers si se generó ruta
+        Incidencia creada en estado PENDIENTE
     """
     try:
         nueva_incidencia, ruta_generada = IncidenciaService.crear_incidencia(
@@ -124,11 +125,37 @@ def verificar_umbral_zona(
         "suma_gravedad": suma,
         "umbral_configurado": umbral,
         "debe_generar_ruta": debe_generar,
-        "incidencias_pendientes": db.query(Incidencia).filter(
+        # Ahora se muestran incidencias VALIDADAS (las que cuentan para rutas)
+        "incidencias_validadas": db.query(Incidencia).filter(
             Incidencia.zona == zona.value,
-            Incidencia.estado == 'pendiente'
+            Incidencia.estado == 'validada'
         ).count()
     }
+
+
+
+@router.post("/{incidencia_id}/validate")
+def validar_incidencia(
+    incidencia_id: int,
+    generar_ruta_auto: bool = Query(True, description="Si True, tras validar verifica umbral y genera ruta automáticamente si corresponde"),
+    db: Session = Depends(get_db)
+):
+    """
+    Validar una incidencia como administrador. Solo incidencias validadas pueden
+    ser consideradas para generación de rutas.
+    """
+    try:
+        incidencia, ruta_generada = IncidenciaService.validar_incidencia(db, incidencia_id, generar_ruta_auto=generar_ruta_auto)
+
+        response = {"incidencia_id": incidencia.id, "estado": incidencia.estado}
+        if ruta_generada:
+            response["ruta_generada_id"] = ruta_generada.id
+
+        return response
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 @router.get("/{incidencia_id}", response_model=IncidenciaResponse)

@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EPAGAL - Dashboard Administrativo</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <div class="header-content">
+                <h1>🚛 EPAGAL - Dashboard Administrativo</h1>
+                <div class="user-info">
+                    <span id="username">Admin</span>
+                    <button onclick="logout()" class="btn-logout">Cerrar Sesión</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Login Modal -->
+        <div id="loginModal" class="modal active">
+            <div class="modal-content">
+                <h2>🔐 Iniciar Sesión</h2>
+                <form id="loginForm">
+                    <div class="form-group">
+                        <label>Usuario:</label>
+                        <input type="text" id="loginUsername" value="admin" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Contraseña:</label>
+                        <input type="password" id="loginPassword" value="admin123" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Ingresar</button>
+                </form>
+                <div id="loginError" class="error-message"></div>
+            </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <nav class="tabs">
+            <button class="tab-btn active" data-tab="incidencias">📋 Incidencias</button>
+            <button class="tab-btn" data-tab="rutas">🗺️ Rutas</button>
+            <button class="tab-btn" data-tab="conductores">👷 Conductores</button>
+            <button class="tab-btn" data-tab="stats">📊 Estadísticas</button>
+        </nav>
+
+        <!-- Main Content -->
+        <main>
+            <!-- INCIDENCIAS TAB -->
+            <div id="incidencias" class="tab-content active">
+                <div class="content-header">
+                    <h2>Incidencias Reportadas</h2>
+                    <div class="filters">
+                        <select id="filterEstado" onchange="loadIncidencias()">
+                            <option value="">Todos los estados</option>
+                            <option value="pendiente">Pendiente</option>
+                            <option value="validada">Validada</option>
+                            <option value="asignada">Asignada</option>
+                            <option value="completada">Completada</option>
+                            <option value="cancelada">Cancelada</option>
+                        </select>
+                        <select id="filterZona" onchange="loadIncidencias()">
+                            <option value="">Todas las zonas</option>
+                            <option value="oriental">Oriental</option>
+                            <option value="occidental">Occidental</option>
+                        </select>
+                        <button onclick="loadIncidencias()" class="btn btn-secondary">🔄 Actualizar</button>
+                    </div>
+                </div>
+                
+                <div id="incidenciasList" class="cards-grid">
+                    <div class="loading">Cargando incidencias...</div>
+                </div>
+            </div>
+
+            <!-- RUTAS TAB -->
+            <div id="rutas" class="tab-content">
+                <div class="content-header">
+                    <h2>Rutas Generadas</h2>
+                    <div class="filters">
+                        <select id="filterRutaZona" onchange="loadRutas()">
+                            <option value="">Todas las zonas</option>
+                            <option value="oriental">Oriental</option>
+                            <option value="occidental">Occidental</option>
+                        </select>
+                        <select id="filterRutaEstado" onchange="loadRutas()">
+                            <option value="">Todos los estados</option>
+                            <option value="planeada">Planeada</option>
+                            <option value="en_ejecucion">En Ejecución</option>
+                            <option value="completada">Completada</option>
+                        </select>
+                        <button onclick="loadRutas()" class="btn btn-secondary">🔄 Actualizar</button>
+                    </div>
+                </div>
+                
+                <div id="rutasList" class="cards-grid">
+                    <div class="loading">Cargando rutas...</div>
+                </div>
+            </div>
+
+            <!-- CONDUCTORES TAB -->
+            <div id="conductores" class="tab-content">
+                <div class="content-header">
+                    <h2>Gestión de Conductores</h2>
+                    <button onclick="showCreateConductorModal()" class="btn btn-primary">➕ Crear Conductor</button>
+                </div>
+                
+                <div id="conductoresList" class="table-container">
+                    <div class="loading">Cargando conductores...</div>
+                </div>
+            </div>
+
+            <!-- STATS TAB -->
+            <div id="stats" class="tab-content">
+                <div class="content-header">
+                    <h2>Estadísticas del Sistema</h2>
+                    <button onclick="loadStats()" class="btn btn-secondary">🔄 Actualizar</button>
+                </div>
+                
+                <div id="statsContent" class="stats-grid">
+                    <div class="loading">Cargando estadísticas...</div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal: Validar Incidencia -->
+    <div id="validarModal" class="modal">
+        <div class="modal-content">
+            <h2>✅ Validar Incidencia</h2>
+            <p id="validarInfo"></p>
+            <div class="modal-actions">
+                <button onclick="confirmarValidacion()" class="btn btn-success">Validar</button>
+                <button onclick="closeModal('validarModal')" class="btn btn-secondary">Cancelar</button>
+            </div>
+            <div id="validarError" class="error-message"></div>
+        </div>
+    </div>
+
+    <!-- Modal: Rechazar Incidencia -->
+    <div id="rechazarModal" class="modal">
+        <div class="modal-content">
+            <h2>❌ Rechazar Incidencia</h2>
+            <p id="rechazarInfo"></p>
+            <div class="form-group">
+                <label>Motivo del rechazo:</label>
+                <textarea id="rechazarMotivo" rows="3" placeholder="Ingrese el motivo..."></textarea>
+            </div>
+            <div class="modal-actions">
+                <button onclick="confirmarRechazo()" class="btn btn-danger">Rechazar</button>
+                <button onclick="closeModal('rechazarModal')" class="btn btn-secondary">Cancelar</button>
+            </div>
+            <div id="rechazarError" class="error-message"></div>
+        </div>
+    </div>
+
+    <!-- Modal: Asignar Conductor a Ruta -->
+    <div id="asignarModal" class="modal">
+        <div class="modal-content modal-large">
+            <h2>👷 Asignar Conductor a Ruta</h2>
+            <p id="asignarInfo"></p>
+            
+            <form id="asignarForm">
+                <div class="form-group">
+                    <label>Conductor:</label>
+                    <select id="asignarConductor" required>
+                        <option value="">Seleccione un conductor...</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Tipo de Camión:</label>
+                    <select id="asignarTipoCamion" required>
+                        <option value="posterior">Posterior (5 ton)</option>
+                        <option value="lateral">Lateral (10 ton)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>ID del Camión:</label>
+                    <input type="text" id="asignarCamionId" placeholder="Ej: LAT-001" required>
+                </div>
+                
+                <div class="form-group">
+                    <label>Fecha y Hora de Inicio (Opcional):</label>
+                    <input type="datetime-local" id="asignarFechaInicio">
+                    <small>Dejar vacío para iniciar inmediatamente</small>
+                </div>
+                
+                <div class="modal-actions">
+                    <button type="submit" class="btn btn-success">Asignar</button>
+                    <button type="button" onclick="closeModal('asignarModal')" class="btn btn-secondary">Cancelar</button>
+                </div>
+            </form>
+            
+            <div id="asignarError" class="error-message"></div>
+        </div>
+    </div>
+
+    <!-- Modal: Crear Conductor -->
+    <div id="createConductorModal" class="modal">
+        <div class="modal-content modal-large">
+            <h2>➕ Crear Nuevo Conductor</h2>
+            
+            <form id="createConductorForm">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Nombre Completo:</label>
+                        <input type="text" id="newNombreCompleto" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Cédula:</label>
+                        <input type="text" id="newCedula" pattern="[0-9]{10}" required>
+                    </div>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Teléfono:</label>
+                        <input type="tel" id="newTelefono" pattern="[0-9]{10}" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Email:</label>
+                        <input type="email" id="newEmail" required>
+                    </div>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Tipo de Licencia:</label>
+                        <select id="newLicenciaTipo" required>
+                            <option value="C">Tipo C</option>
+                            <option value="D">Tipo D</option>
+                            <option value="E">Tipo E</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Zona Preferida:</label>
+                        <select id="newZonaPreferida" required>
+                            <option value="oriental">Oriental</option>
+                            <option value="occidental">Occidental</option>
+                            <option value="ambas">Ambas</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Usuario:</label>
+                        <input type="text" id="newUsername" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Contraseña:</label>
+                        <input type="password" id="newPassword" required>
+                    </div>
+                </div>
+                
+                <div class="modal-actions">
+                    <button type="submit" class="btn btn-success">Crear Conductor</button>
+                    <button type="button" onclick="closeModal('createConductorModal')" class="btn btn-secondary">Cancelar</button>
+                </div>
+            </form>
+            
+            <div id="createConductorError" class="error-message"></div>
+        </div>
+    </div>
+
+    <!-- Modal: Ver Detalles de Ruta -->
+    <div id="rutaDetalleModal" class="modal">
+        <div class="modal-content modal-large">
+            <h2>🗺️ Detalles de la Ruta</h2>
+            <div id="rutaDetalleContent"></div>
+            <div class="modal-actions">
+                <button onclick="closeModal('rutaDetalleModal')" class="btn btn-secondary">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

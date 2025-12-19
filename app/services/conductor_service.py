@@ -320,6 +320,7 @@ class AsignacionService:
             conductor_id=data.conductor_id,
             camion_tipo=data.camion_tipo,
             camion_id=data.camion_id,
+            fecha_inicio=getattr(data, 'fecha_inicio', None),
             estado='asignado'
         )
         

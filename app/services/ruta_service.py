@@ -246,14 +246,14 @@ class RutaService:
         """
         logger.info(f"Iniciando generación automática de ruta para zona {zona}")
         
-        # 1. Obtener incidencias pendientes
+        # 1. Obtener incidencias validadas (listas para asignar a rutas)
         incidencias = db.query(Incidencia).filter(
             Incidencia.zona == zona,
-            Incidencia.estado == 'pendiente'
+            Incidencia.estado == 'validada'
         ).all()
         
         if not incidencias:
-            logger.warning(f"No hay incidencias pendientes en zona {zona}")
+            logger.warning(f"No hay incidencias validadas en zona {zona}")
             return None
         
         # 2. Calcular suma de gravedad
@@ -435,11 +435,11 @@ class RutaService:
         query = db.query(Incidencia).filter(Incidencia.zona == zona)
         
         if incluir_asignadas:
-            # Incluir pendientes y asignadas (pero solo si la ruta está 'planeada', no en ejecución)
-            query = query.filter(Incidencia.estado.in_(['pendiente', 'asignada']))
+            # Incluir validadas y asignadas (pero solo si la ruta está 'planeada', no en ejecución)
+            query = query.filter(Incidencia.estado.in_(['validada', 'asignada']))
         else:
-            # Solo pendientes
-            query = query.filter(Incidencia.estado == 'pendiente')
+            # Solo validadas (listas para asignar)
+            query = query.filter(Incidencia.estado == 'validada')
         
         incidencias = query.all()
         return sum(inc.gravedad for inc in incidencias)
@@ -493,7 +493,7 @@ class RutaService:
                         ).first()
                         
                         if incidencia and incidencia.estado == 'asignada':
-                            incidencia.estado = 'pendiente'
+                            incidencia.estado = 'validada'  # Volver a validada, no a pendiente
                             incidencias_liberadas += 1
                 
                 logger.info(f"Liberadas {incidencias_liberadas} incidencias de ruta {ruta.id}")
