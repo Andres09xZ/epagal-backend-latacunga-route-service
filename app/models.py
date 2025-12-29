@@ -69,7 +69,7 @@ class RutaGenerada(Base):
     costo_total = Column(Float)  # distancia o tiempo total
     duracion_estimada = Column(Interval)
     camiones_usados = Column(SmallInteger)
-    estado = Column(String(15), default='planeada')  # planeada, en_ejecucion, completada
+    estado = Column(String(15), default='planeada')  # planeada, asignada, en_ejecucion, completada
     notas = Column(Text)
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
     updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -77,11 +77,12 @@ class RutaGenerada(Base):
     # Constraints
     __table_args__ = (
         CheckConstraint("zona IN ('oriental', 'occidental')", name='check_ruta_zona'),
-        CheckConstraint("estado IN ('planeada', 'en_ejecucion', 'completada')", name='check_ruta_estado'),
+        CheckConstraint("estado IN ('planeada', 'asignada', 'en_ejecucion', 'completada')", name='check_ruta_estado'),
     )
 
     # Relaciones
     detalles = relationship("RutaDetalle", back_populates="ruta", cascade="all, delete-orphan")
+    asignaciones = relationship("AsignacionConductor", back_populates="ruta", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<RutaGenerada(id={self.id}, zona={self.zona}, estado={self.estado}, camiones={self.camiones_usados})>"
@@ -268,7 +269,7 @@ class AsignacionConductor(Base):
     )
 
     # Relaciones
-    ruta = relationship("RutaGenerada")
+    ruta = relationship("RutaGenerada", back_populates="asignaciones")
     conductor = relationship("Conductor", back_populates="asignaciones")
 
     def __repr__(self):

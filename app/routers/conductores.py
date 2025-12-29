@@ -19,7 +19,7 @@ from app.routers.auth import get_current_user, get_current_admin, get_current_co
 from app.models import Usuario, Conductor, AsignacionConductor, RutaGenerada
 
 
-router = APIRouter(prefix="/api/conductores", tags=["Conductores"])
+router = APIRouter(prefix="/conductores", tags=["Conductores"])
 
 
 # ==================== ENDPOINTS DE GESTIÓN (ADMIN) ====================
@@ -365,6 +365,34 @@ async def finalizar_mi_ruta(
 
 # ==================== ENDPOINTS DE ASIGNACIONES (ADMIN) ====================
 
+@router.get("/asignaciones/", response_model=List[AsignacionResponse], summary="Listar todas las asignaciones")
+async def listar_asignaciones(
+    estado: Optional[str] = None,
+    zona: Optional[str] = None,
+    db: Session = Depends(get_db),
+    admin: Usuario = Depends(get_current_admin)
+):
+    """
+    Lista todas las asignaciones de conductores a rutas (solo administradores)
+    
+    Puede filtrar por estado de asignación y zona de ruta.
+    """
+    query = db.query(AsignacionConductor).options(
+        joinedload(AsignacionConductor.conductor),
+        joinedload(AsignacionConductor.ruta)
+    )
+    
+    if estado:
+        query = query.filter(AsignacionConductor.estado == estado)
+    
+    if zona:
+        query = query.join(RutaGenerada).filter(RutaGenerada.zona == zona)
+    
+    asignaciones = query.order_by(AsignacionConductor.fecha_inicio.desc()).all()
+    
+    return asignaciones
+
+
 @router.post("/asignaciones/", response_model=AsignacionResponse, summary="Asignar conductor a ruta")
 async def crear_asignacion(
     data: AsignacionCreate,
@@ -465,3 +493,220 @@ async def obtener_asignaciones_conductor(
         )
         for a in asignaciones
     ]
+
+
+# ==================== NUEVOS ENDPOINTS ====================
+
+@router.get("/{conductor_id}/rutas/activas", summary="Rutas activas de un conductor")
+async def obtener_rutas_activas_conductor(
+    conductor_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Obtiene todas las rutas activas (asignada, en_ejecucion) de un conductor específico
+    con información detallada de incidencias y progreso
+    """
+    from app.models import RutaDetalle, Incidencia
+    
+    # Verificar que el conductor existe
+    conductor = db.query(Conductor).filter(Conductor.id == conductor_id).first()
+    if not conductor:
+        raise HTTPException(status_code=404, detail=f"Conductor {conductor_id} no encontrado")
+    
+    # Buscar asignaciones activas del conductor
+    asignaciones = db.query(AsignacionConductor).options(
+        joinedload(AsignacionConductor.ruta)
+    ).filter(
+        AsignacionConductor.conductor_id == conductor_id,
+        AsignacionConductor.estado.in_(['asignado', 'iniciado'])
+    ).all()
+    
+    rutas_activas = []
+    
+    for asignacion in asignaciones:
+        ruta = asignacion.ruta
+        
+        # Contar incidencias de la ruta
+        incidencias_totales = db.query(RutaDetalle).filter(
+            RutaDetalle.ruta_id == ruta.id,
+            RutaDetalle.tipo_punto == 'incidencia'
+        ).count()
+        
+        incidencias_completadas = db.query(RutaDetalle).join(
+            Incidencia, RutaDetalle.incidencia_id == Incidencia.id
+        ).filter(
+            RutaDetalle.ruta_id == ruta.id,
+            RutaDetalle.tipo_punto == 'incidencia',
+            Incidencia.estado == 'completada'
+        ).count()
+        
+        # Obtener detalles de la ruta (puntos)
+        detalles = db.query(RutaDetalle).filter(
+            RutaDetalle.ruta_id == ruta.id
+        ).order_by(RutaDetalle.orden).all()
+        
+        puntos = []
+        for d in detalles:
+            punto = {
+                "orden": d.orden,
+                "tipo_punto": d.tipo_punto,
+                "lat": d.lat,
+                "lon": d.lon,
+                "distancia_desde_anterior_m": d.distancia_desde_anterior,
+                "tiempo_desde_anterior_seg": d.tiempo_desde_anterior
+            }
+            
+            if d.tipo_punto == 'incidencia' and d.incidencia:
+                punto["incidencia"] = {
+                    "id": d.incidencia.id,
+                    "tipo": d.incidencia.tipo,
+                    "gravedad": d.incidencia.gravedad,
+                    "descripcion": d.incidencia.descripcion,
+                    "estado": d.incidencia.estado,
+                    "foto_url": d.incidencia.foto_url
+                }
+            
+            puntos.append(punto)
+        
+        rutas_activas.append({
+            "ruta_id": ruta.id,
+            "zona": ruta.zona,
+            "estado_ruta": ruta.estado,
+            "fecha_generacion": ruta.fecha_generacion.isoformat() if ruta.fecha_generacion else None,
+            "duracion_estimada": str(ruta.duracion_estimada) if ruta.duracion_estimada else None,
+            "costo_total_km": round(ruta.costo_total / 1000, 2) if ruta.costo_total else None,
+            "asignacion": {
+                "id": asignacion.id,
+                "estado": asignacion.estado,
+                "camion_tipo": asignacion.camion_tipo,
+                "camion_id": asignacion.camion_id,
+                "fecha_asignacion": asignacion.fecha_asignacion.isoformat() if asignacion.fecha_asignacion else None,
+                "fecha_inicio": asignacion.fecha_inicio.isoformat() if asignacion.fecha_inicio else None
+            },
+            "progreso": {
+                "incidencias_totales": incidencias_totales,
+                "incidencias_completadas": incidencias_completadas,
+                "porcentaje": round((incidencias_completadas / incidencias_totales * 100), 1) if incidencias_totales > 0 else 0
+            },
+            "puntos": puntos
+        })
+    
+    return {
+        "conductor": {
+            "id": conductor.id,
+            "nombre_completo": conductor.nombre_completo,
+            "cedula": conductor.cedula,
+            "estado": conductor.estado
+        },
+        "total_rutas_activas": len(rutas_activas),
+        "rutas": rutas_activas
+    }
+
+
+@router.get("/me/estadisticas", summary="Mis estadísticas como conductor")
+async def obtener_mis_estadisticas(
+    conductor: Conductor = Depends(get_current_conductor),
+    db: Session = Depends(get_db)
+):
+    """
+    Obtiene estadísticas personales del conductor autenticado:
+    - Total de rutas completadas
+    - Incidencias atendidas
+    - Tiempo promedio de ruta
+    - Rendimiento por zona
+    """
+    from sqlalchemy import func
+    from datetime import timedelta
+    
+    # Total de asignaciones completadas
+    total_completadas = db.query(AsignacionConductor).filter(
+        AsignacionConductor.conductor_id == conductor.id,
+        AsignacionConductor.estado == 'completado'
+    ).count()
+    
+    # Total de asignaciones activas
+    total_activas = db.query(AsignacionConductor).filter(
+        AsignacionConductor.conductor_id == conductor.id,
+        AsignacionConductor.estado.in_(['asignado', 'iniciado'])
+    ).count()
+    
+    # Calcular tiempo promedio de ruta
+    asignaciones_con_tiempo = db.query(AsignacionConductor).filter(
+        AsignacionConductor.conductor_id == conductor.id,
+        AsignacionConductor.estado == 'completado',
+        AsignacionConductor.fecha_inicio.isnot(None),
+        AsignacionConductor.fecha_finalizacion.isnot(None)
+    ).all()
+    
+    tiempos = []
+    for a in asignaciones_con_tiempo:
+        duracion = a.fecha_finalizacion - a.fecha_inicio
+        tiempos.append(duracion.total_seconds())
+    
+    tiempo_promedio_seg = sum(tiempos) / len(tiempos) if tiempos else 0
+    tiempo_promedio = str(timedelta(seconds=int(tiempo_promedio_seg)))
+    
+    # Contar incidencias atendidas
+    from app.models import RutaDetalle, Incidencia
+    
+    incidencias_atendidas = db.query(func.count(RutaDetalle.id)).join(
+        AsignacionConductor, RutaDetalle.ruta_id == AsignacionConductor.ruta_id
+    ).join(
+        Incidencia, RutaDetalle.incidencia_id == Incidencia.id
+    ).filter(
+        AsignacionConductor.conductor_id == conductor.id,
+        AsignacionConductor.estado == 'completado',
+        RutaDetalle.tipo_punto == 'incidencia',
+        Incidencia.estado == 'completada'
+    ).scalar()
+    
+    # Rendimiento por zona
+    from sqlalchemy import case
+    
+    rutas_por_zona = db.query(
+        RutaGenerada.zona,
+        func.count(AsignacionConductor.id).label('total')
+    ).join(
+        AsignacionConductor, RutaGenerada.id == AsignacionConductor.ruta_id
+    ).filter(
+        AsignacionConductor.conductor_id == conductor.id,
+        AsignacionConductor.estado == 'completado'
+    ).group_by(RutaGenerada.zona).all()
+    
+    zonas = {zona: total for zona, total in rutas_por_zona}
+    
+    # Última ruta completada
+    ultima_asignacion = db.query(AsignacionConductor).options(
+        joinedload(AsignacionConductor.ruta)
+    ).filter(
+        AsignacionConductor.conductor_id == conductor.id,
+        AsignacionConductor.estado == 'completado'
+    ).order_by(AsignacionConductor.fecha_finalizacion.desc()).first()
+    
+    ultima_ruta = None
+    if ultima_asignacion:
+        ultima_ruta = {
+            "ruta_id": ultima_asignacion.ruta_id,
+            "zona": ultima_asignacion.ruta.zona,
+            "fecha_finalizacion": ultima_asignacion.fecha_finalizacion.isoformat() if ultima_asignacion.fecha_finalizacion else None
+        }
+    
+    return {
+        "conductor": {
+            "id": conductor.id,
+            "nombre_completo": conductor.nombre_completo,
+            "estado": conductor.estado
+        },
+        "estadisticas": {
+            "rutas_completadas": total_completadas,
+            "rutas_activas": total_activas,
+            "incidencias_atendidas": incidencias_atendidas or 0,
+            "tiempo_promedio_ruta": tiempo_promedio,
+            "rendimiento_por_zona": {
+                "oriental": zonas.get('oriental', 0),
+                "occidental": zonas.get('occidental', 0)
+            },
+            "ultima_ruta_completada": ultima_ruta
+        }
+    }

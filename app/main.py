@@ -34,6 +34,10 @@ allowed_origins = [
     "ionic://localhost",                   # Ionic
     "http://localhost",                    # Genérico local
     "null",                                # Archivos HTML locales (file://)
+    "http://10.52.239.59:7000",           # App operador Expo/React Native
+    "http://10.52.239.59:9000",           # Acceso directo desde la red local
+    "http://10.52.239.59:8000",           # Dashboard desde la red local
+    "http://10.52.239.59",                 # IP base sin puerto
 ]
 
 app.add_middleware(

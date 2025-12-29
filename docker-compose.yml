@@ -8,7 +8,7 @@ services:
       dockerfile: Dockerfile
     container_name: epagal-backend
     ports:
-      - "9000:8081"
+      - "0.0.0.0:9000:8081"  # Escuchar en todas las interfaces de red
     environment:
       - DB_URL=${DB_URL}
       - JWT_SECRET=${JWT_SECRET}

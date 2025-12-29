@@ -14,18 +14,32 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
     const username = document.getElementById('loginUsername').value;
     const password = document.getElementById('loginPassword').value;
     
+    // Limpiar error previo
+    const errorDiv = document.getElementById('loginError');
+    if (errorDiv) {
+        errorDiv.textContent = '';
+        errorDiv.classList.remove('active');
+    }
+    
     try {
+        console.log('Intentando login con:', username);
+        
         const response = await fetch(`${API_URL}/api/auth/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password })
         });
         
+        console.log('Respuesta del servidor:', response.status);
+        
         if (!response.ok) {
-            throw new Error('Credenciales inválidas');
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.detail || 'Credenciales inválidas');
         }
         
         const data = await response.json();
+        console.log('Login exitoso:', data);
+        
         authToken = data.access_token;
         currentUser = data;
         
@@ -43,6 +57,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
         loadIncidencias();
         
     } catch (error) {
+        console.error('Error en login:', error);
         showError('loginError', error.message);
     }
 });
@@ -90,6 +105,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
         if (tabName === 'incidencias') loadIncidencias();
         else if (tabName === 'rutas') loadRutas();
         else if (tabName === 'conductores') loadConductores();
+        else if (tabName === 'horarios') loadHorarios();
         else if (tabName === 'stats') loadStats();
     });
 });
@@ -211,14 +227,21 @@ async function confirmarValidacion() {
         
         // Mostrar mensaje de éxito
         if (result.ruta_generada_id) {
-            alert(`✅ Incidencia validada exitosamente\n🗺️ Se generó la ruta #${result.ruta_generada_id}`);
+            // Si se generó ruta, mostrar indicador de carga brevemente para feedback visual
+            showLoading();
+            setTimeout(() => {
+                hideLoading();
+                alert(`✅ Incidencia validada exitosamente\n🗺️ ¡Se generó la ruta #${result.ruta_generada_id}!\n\nSe superó el umbral de gravedad.`);
+                loadRutas();
+            }, 1500);
         } else {
-            alert('✅ Incidencia validada exitosamente');
+            alert('✅ Incidencia validada exitosamente\n\nAún no se supera el umbral para generar ruta.');
         }
         
         loadIncidencias();
         
     } catch (error) {
+        hideLoading();
         showError('validarError', error.message);
     }
 }
@@ -351,15 +374,22 @@ async function loadRutas() {
                         </div>
                         ${ruta.asignaciones && ruta.asignaciones.length > 0 ? `
                         <div class="info-row">
-                            <span class="info-label">Asignaciones:</span>
-                            <span class="info-value">${ruta.asignaciones.length}</span>
+                            <span class="info-label">👷 Conductor:</span>
+                            <span class="info-value">${ruta.asignaciones[0].conductor_nombre}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">🚛 Camión:</span>
+                            <span class="info-value">${ruta.asignaciones[0].camion_tipo === 'posterior' ? 'Posterior' : 'Lateral'} - ${ruta.asignaciones[0].camion_id}</span>
                         </div>
                         ` : ''}
                     </div>
                 </div>
                 <div class="card-footer">
-                    ${ruta.estado === 'planeada' ? `
+                    ${ruta.estado === 'planeada' && (!ruta.asignaciones || ruta.asignaciones.length === 0) ? `
                         <button onclick="showAsignarModal(${ruta.id})" class="btn btn-primary btn-sm">👷 Asignar Conductor</button>
+                    ` : ''}
+                    ${ruta.asignaciones && ruta.asignaciones.length > 0 ? `
+                        <span class="badge badge-success">✅ Conductor Asignado</span>
                     ` : ''}
                     <button onclick="showRutaDetalle(${ruta.id})" class="btn btn-info btn-sm">👁️ Ver Detalles</button>
                 </div>
@@ -378,19 +408,28 @@ async function showAsignarModal(rutaId) {
     document.getElementById('asignarError').textContent = '';
     document.getElementById('asignarError').classList.remove('active');
     
-    // Cargar conductores disponibles
+    // Primero obtener los detalles de la ruta para saber la zona
     try {
-        const response = await fetch(`${API_URL}/api/conductores/`, {
+        const rutaResponse = await fetch(`${API_URL}/api/rutas/${rutaId}`, {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
-        const conductores = await response.json();
+        const ruta = await rutaResponse.json();
+        const zona = ruta.zona;
+        
+        // Cargar conductores disponibles filtrados por zona
+        const conductoresResponse = await fetch(`${API_URL}/api/conductores/disponibles?zona=${zona}`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        const conductores = await conductoresResponse.json();
         
         const select = document.getElementById('asignarConductor');
-        select.innerHTML = '<option value="">Seleccione un conductor...</option>' +
-            conductores
-                .filter(c => c.estado === 'activo')
-                .map(c => `<option value="${c.id}">${c.nombre_completo} - ${c.cedula}</option>`)
-                .join('');
+        
+        if (!Array.isArray(conductores) || conductores.length === 0) {
+            select.innerHTML = `<option value="">No hay conductores disponibles en zona ${zona}</option>`;
+        } else {
+            select.innerHTML = '<option value="">Seleccione un conductor...</option>' +
+                conductores.map(c => `<option value="${c.id}">${c.nombre_completo} - ${c.cedula}</option>`).join('');
+        }
         
         // Establecer fecha por defecto (mañana a las 8:00)
         const tomorrow = new Date();
@@ -653,6 +692,136 @@ document.getElementById('createConductorForm').addEventListener('submit', async 
     }
 });
 
+// ==================== HORARIOS ====================
+
+async function loadHorarios() {
+    const container = document.getElementById('horariosContent');
+    container.innerHTML = '<div class="loading">Cargando horarios...</div>';
+    
+    try {
+        const zonaFilter = document.getElementById('filterHorarioZona').value;
+        // Cargar todas las asignaciones de conductores
+        const response = await fetch(`${API_URL}/api/conductores/asignaciones/`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        let asignaciones = await response.json();
+        if (!Array.isArray(asignaciones)) {
+            asignaciones = [];
+        }
+        // Filtrar por zona si es necesario
+        if (zonaFilter) {
+            asignaciones = asignaciones.filter(a => a.ruta?.zona === zonaFilter);
+        }
+        // Filtrar solo asignaciones con fecha_inicio programada
+        const asignacionesProgramadas = asignaciones.filter(a => a.fecha_inicio);
+        // Agrupar por día y luego por conductor
+        const asignacionesPorDia = {};
+        asignacionesProgramadas.forEach(asignacion => {
+            const fecha = new Date(asignacion.fecha_inicio);
+            const diaKey = fecha.toISOString().split('T')[0]; // YYYY-MM-DD
+            if (!asignacionesPorDia[diaKey]) {
+                asignacionesPorDia[diaKey] = [];
+            }
+            asignacionesPorDia[diaKey].push(asignacion);
+        });
+        const diasOrdenados = Object.keys(asignacionesPorDia).sort();
+        if (diasOrdenados.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <h3>No hay rutas programadas</h3>
+                    <p>Asigna conductores a rutas con horarios para verlas aquí</p>
+                </div>
+            `;
+            return;
+        }
+        let html = '<div class="schedule-container">';
+        diasOrdenados.forEach(diaKey => {
+            const asignacionesDia = asignacionesPorDia[diaKey];
+            const fecha = new Date(diaKey);
+            const nombreDia = fecha.toLocaleDateString('es-EC', { weekday: 'long' });
+            const fechaFormato = fecha.toLocaleDateString('es-EC', { 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+            });
+            html += `
+                <div class="day-section">
+                    <div class="day-header">
+                        <div>
+                            <div class="day-name">${nombreDia.charAt(0).toUpperCase() + nombreDia.slice(1)}</div>
+                            <div class="day-date">${fechaFormato}</div>
+                        </div>
+                        <div class="day-count">${asignacionesDia.length} ruta${asignacionesDia.length !== 1 ? 's' : ''}</div>
+                    </div>
+                    <div class="schedule-items">
+            `;
+            // Agrupar por conductor
+            const asignacionesPorConductor = {};
+            asignacionesDia.forEach(asignacion => {
+                const nombre = asignacion.conductor?.nombre_completo || 'Sin conductor';
+                if (!asignacionesPorConductor[nombre]) {
+                    asignacionesPorConductor[nombre] = [];
+                }
+                asignacionesPorConductor[nombre].push(asignacion);
+            });
+            // Mostrar por conductor
+            Object.keys(asignacionesPorConductor).sort().forEach(nombreConductor => {
+                html += `<div class="conductor-section">
+                    <div class="conductor-header"><strong>👷 ${nombreConductor}</strong></div>
+                `;
+                // Ordenar por hora
+                asignacionesPorConductor[nombreConductor].sort((a, b) => new Date(a.fecha_inicio) - new Date(b.fecha_inicio));
+                asignacionesPorConductor[nombreConductor].forEach(asignacion => {
+                    const horaInicio = new Date(asignacion.fecha_inicio).toLocaleTimeString('es-EC', {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    });
+                    html += `
+                        <div class="schedule-item">
+                            <div class="schedule-info">
+                                <div class="schedule-time">🕐 ${horaInicio}</div>
+                                <div class="schedule-details">
+                                    <span class="schedule-detail">
+                                        🗺️ Ruta #${asignacion.ruta_id}
+                                    </span>
+                                    <span class="schedule-detail">
+                                        🚛 ${asignacion.camion_tipo === 'posterior' ? 'Posterior' : 'Lateral'} - ${asignacion.camion_id}
+                                    </span>
+                                    <span class="badge badge-${asignacion.ruta?.zona || 'oriental'}">
+                                        ${(asignacion.ruta?.zona || 'N/A').toUpperCase()}
+                                    </span>
+                                    <span class="badge badge-${asignacion.estado}">
+                                        ${formatEstado(asignacion.estado)}
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="schedule-actions">
+                                <button onclick="verRutaDetalle(${asignacion.ruta_id})" class="btn btn-info btn-sm">
+                                    📍 Ver Ruta
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                });
+                html += `</div>`;
+            });
+            html += `
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+        container.innerHTML = html;
+    } catch (error) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <h3>Error al cargar horarios</h3>
+                <p>${error.message}</p>
+            </div>
+        `;
+    }
+}
+
 // ==================== ESTADÍSTICAS ====================
 
 async function loadStats() {
@@ -781,9 +950,21 @@ function formatTipoPunto(tipo) {
     return tipos[tipo] || tipo;
 }
 
+// Loading overlay functions
+function showLoading() {
+    const overlay = document.getElementById('loadingOverlay');
+    overlay.classList.add('active');
+}
+
+function hideLoading() {
+    const overlay = document.getElementById('loadingOverlay');
+    overlay.classList.remove('active');
+}
+
 // Cerrar modales al hacer clic fuera
 window.addEventListener('click', (e) => {
     if (e.target.classList.contains('modal')) {
         e.target.classList.remove('active');
     }
 });
+
