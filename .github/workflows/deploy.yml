@@ -10,7 +10,7 @@ on:
   workflow_dispatch:  # Permite ejecución manual desde GitHub
 
 env:
-  DOCKER_IMAGE: mrengineer09/epagal-backend-latacunga
+  DOCKER_IMAGE: mrengineer09/epagal-backend-routing
   DOCKER_TAG: latest
 
 jobs:
