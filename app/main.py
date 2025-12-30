@@ -89,8 +89,49 @@ def root():
 
 @app.get("/health")
 def health_check():
-    """Health check endpoint"""
+    """
+    Health check endpoint - Verifica el estado del servicio
+    Útil para monitoreo y verificación de despliegue
+    """
+    from datetime import datetime
+    import platform
+    
+    # Verificar conexión a base de datos
+    db_status = "ok"
+    try:
+        from app.database import SessionLocal
+        db = SessionLocal()
+        db.execute("SELECT 1")
+        db.close()
+    except Exception as e:
+        db_status = f"error: {str(e)}"
+    
+    # Verificar conexión a OSRM
+    osrm_status = "ok"
+    try:
+        import requests
+        osrm_url = os.getenv("OSRM_URL", "http://osrm:5000")
+        response = requests.get(f"{osrm_url}/route/v1/driving/-78.617,-0.933;-78.618,-0.934", timeout=2.0)
+        if response.status_code != 200:
+            osrm_status = f"warning: status {response.status_code}"
+    except Exception as e:
+        osrm_status = f"error: {str(e)}"
+    
     return {
-        "status": "ok",
-        "service": "incidencias-api"
+        "status": "healthy",
+        "service": "EPAGAL Backend - Sistema de Gestión de Incidencias",
+        "version": "2.0.0",
+        "timestamp": datetime.utcnow().isoformat(),
+        "environment": os.getenv("ENVIRONMENT", "production"),
+        "python_version": platform.python_version(),
+        "checks": {
+            "database": db_status,
+            "osrm_service": osrm_status,
+            "api": "ok"
+        },
+        "endpoints": {
+            "docs": "/docs",
+            "redoc": "/redoc",
+            "api_base": "/api"
+        }
     }

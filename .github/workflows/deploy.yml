@@ -92,6 +92,15 @@ jobs:
           if [ "${{ needs.build-and-push.result }}" == "success" ] && [ "${{ needs.deploy-to-render.result }}" == "success" ]; then
             echo "✅ Pipeline completado exitosamente"
             echo "🎉 La aplicación está actualizada en Render"
+            echo ""
+            echo "🌐 URL de la aplicación:"
+            echo "   https://tesis-1-z78t.onrender.com"
+            echo ""
+            echo "🔍 Verificar health check:"
+            echo "   https://tesis-1-z78t.onrender.com/health"
+            echo ""
+            echo "📚 Documentación API:"
+            echo "   https://tesis-1-z78t.onrender.com/docs"
           else
             echo "❌ El pipeline falló. Revisa los logs arriba."
           fi
