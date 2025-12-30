@@ -6,6 +6,7 @@
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python)](https://python.org)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker)](https://docker.com)
 [![OSRM](https://img.shields.io/badge/OSRM-Powered-00897B?style=for-the-badge)](http://project-osrm.org/)
+[![Deploy](https://github.com/Andres09xZ/epagal-backend-latacunga-route-service/actions/workflows/deploy.yml/badge.svg)](https://github.com/Andres09xZ/epagal-backend-latacunga-route-service/actions/workflows/deploy.yml)
 
 ---
 
