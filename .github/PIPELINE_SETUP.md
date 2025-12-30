@@ -1,5 +1,8 @@
 # 🚀 Pipeline CI/CD - GitHub Actions
 
+
+Esta es una linea de prueba
+
 Este repositorio utiliza GitHub Actions para automatizar el proceso de build, push a Docker Hub y deploy en Render.
 
 ## 📋 Configuración de Secrets
