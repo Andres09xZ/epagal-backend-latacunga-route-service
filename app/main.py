@@ -22,7 +22,8 @@ app = FastAPI(
 
 # Configuración CORS - Orígenes permitidos (hardcoded para producción)
 allowed_origins = [
-    "https://tesis-1-z78t.onrender.com",  # Frontend en producción
+    "https://epagal-backend-routing-latest.onrender.com",  # Backend en producción
+    "https://tesis-1-z78t.onrender.com",  # Frontend en producción (si existe)
     "http://localhost:3000",               # React/Vue local
     "http://localhost:8000",               # Dashboard local
     "http://localhost:8080",               # Desarrollo local

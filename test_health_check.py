@@ -9,7 +9,7 @@ from datetime import datetime
 # URLs a probar
 URLS = [
     "http://localhost:9000/health",           # Local
-    "https://tesis-1-z78t.onrender.com/health"  # Producción
+    "https://epagal-backend-routing-latest.onrender.com/health"  # Producción
 ]
 
 def test_health_check(url: str):
