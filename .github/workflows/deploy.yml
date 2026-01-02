@@ -107,29 +107,34 @@ jobs:
               echo "✅ Deploy completado exitosamente!"
               echo "status=success" >> $GITHUB_OUTPUT
               exit 0
-            elif [ "$DEPLOY_STATUS" = "build_failed" ] || [ "$DEPLOY_STATUS" = "deactivated" ] || [ "$DEPLOY_STATUS" = "deploy_failed" ]; then
+            elif [ "$DEPLOY_STATUS" = "build_failed" ] || [ "$DEPLOY_STATUS" = "update_failed" ] || [ "$DEPLOY_STATUS" = "deactivated" ] || [ "$DEPLOY_STATUS" = "deploy_failed" ]; then
               echo "❌ Deploy falló con estado: $DEPLOY_STATUS"
               echo "status=failed" >> $GITHUB_OUTPUT
               
               # Obtener logs del deploy fallido
               echo ""
-              echo "📋 Obteniendo logs del error en Render..."
+              echo "📋 Obteniendo logs de Render..."
               echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-              echo "🔴 LOGS DE ERROR DE RENDER:"
+              echo "🔴 LOGS DE ERROR:"
               echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
               
-              # Obtener logs recientes del servicio
+              # Intentar obtener logs recientes
               LOGS=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
-                "https://api.render.com/v1/services/$SERVICE_ID/logs?limit=100")
+                "https://api.render.com/v1/services/$SERVICE_ID/logs?limit=200" || echo "")
               
-              # Extraer y mostrar las últimas líneas con errores
-              echo "$LOGS" | jq -r '.[] | select(.message | contains("Error") or contains("error") or contains("Failed") or contains("failed") or contains("Traceback") or contains("ImportError") or contains("Exception")) | .message' 2>/dev/null | tail -n 50
-              
-              # Si no hay mensajes filtrados, mostrar los últimos 30 logs
-              if [ -z "$(echo "$LOGS" | jq -r '.[] | select(.message | contains("Error") or contains("error")) | .message' 2>/dev/null)" ]; then
-                echo ""
-                echo "📄 Últimos 30 logs del servicio:"
-                echo "$LOGS" | jq -r '.[].message' 2>/dev/null | tail -n 30
+              # Verificar si obtuvimos logs
+              if [ ! -z "$LOGS" ]; then
+                # Intentar parsear como JSON y extraer mensajes con errores
+                ERROR_LOGS=$(echo "$LOGS" | jq -r '.[] | select(.message | test("Error|error|Failed|failed|Traceback|ImportError|Exception"; "i")) | .message' 2>/dev/null || echo "")
+                
+                if [ ! -z "$ERROR_LOGS" ]; then
+                  echo "$ERROR_LOGS" | tail -n 100
+                else
+                  # Si no hay errores filtrados, mostrar todos los logs recientes
+                  echo "$LOGS" | jq -r '.[].message' 2>/dev/null | tail -n 50 || echo "No se pudieron parsear los logs"
+                fi
+              else
+                echo "⚠️  No se pudieron obtener logs de la API de Render"
               fi
               
               echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
