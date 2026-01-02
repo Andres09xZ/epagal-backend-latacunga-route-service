@@ -1,229 +1,157 @@
 """
-Endpoints para gestión de incidencias ciudadanas
+Router de incidencias para FastAPI
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
-from typing import List, Optional
-
+from fastapi import APIRouter, Depends, HTTPException, status  # type: ignore[import]
+from sqlalchemy.orm import Session  # type: ignore[import]
+from pydantic import BaseModel  # type: ignore[import]
+from typing import Annotated, List, Optional
+from datetime import datetime
 from app.database import get_db
-from app.models import Incidencia, Config, RutaGenerada
-from app.schemas.incidencias import (
-    IncidenciaCreate, 
-    IncidenciaResponse, 
-    IncidenciaUpdate,
-    IncidenciaStats,
-    EstadoIncidencia,
-    ZonaIncidencia
-)
-from app.services.incidencia_service import IncidenciaService
+from app.models import Incidencia
 
-router = APIRouter(
-    prefix="/incidencias",
-    tags=["Incidencias"]
-)
+router = APIRouter(prefix="/incidencias", tags=["incidencias"])
 
 
-@router.post("/", response_model=IncidenciaResponse, status_code=status.HTTP_201_CREATED)
-def crear_incidencia(
-    incidencia: IncidenciaCreate,
-    auto_generar_ruta: bool = Query(False, description="Si True, genera ruta automáticamente al superar umbral (usar False para flujo con validación admin)"),
-    db: Session = Depends(get_db)
-):
-    """
-    Crear una nueva incidencia
+class IncidenciaResponse(BaseModel):
+    id: int
+    tipo: str
+    gravedad: int
+    descripcion: str
+    foto_url: Optional[str] = None
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    zona: str
+    estado: str
+    ventana_inicio: Optional[datetime] = None
+    ventana_fin: Optional[datetime] = None
+    reportado_en: datetime
+    usuario_id: Optional[int] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class IncidenciaCreate(BaseModel):
+    tipo: str
+    gravedad: int = 1
+    descripcion: str
+    foto_url: Optional[str] = None
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    zona: str
+    usuario_id: int = 1  # Default para testing
+
+
+@router.get("/stats")
+async def estadisticas(db: Annotated[Session, Depends(get_db)]):
+    """Estadísticas de incidencias"""
+    total = db.query(Incidencia).count()
     
-    Reglas automáticas:
-    - Asigna gravedad según tipo (acopio=1, zona_critica=3, animal_muerto=5)
-    - Clasifica zona automáticamente (oriental/occidental)
-    - Calcula ventana de atención según tipo
-    - Convierte coordenadas a UTM
-    - **Estado inicial: PENDIENTE** (requiere validación del admin)
-    - La ruta se genera cuando el admin valida la incidencia (POST /api/incidencias/{id}/validate)
+    # Contar por estado
+    estados = db.query(Incidencia.estado).distinct().all()
+    por_estado = {}
+    for (estado_val,) in estados:
+        if estado_val:
+            count = db.query(Incidencia).filter(Incidencia.estado == estado_val).count()
+            por_estado[estado_val] = count
     
-    Args:
-        auto_generar_ruta: Si True, genera ruta automática (legacy). Por defecto False para flujo con validación
-    
-    Returns:
-        Incidencia creada en estado PENDIENTE
-    """
-    try:
-        nueva_incidencia, ruta_generada = IncidenciaService.crear_incidencia(
-            db, 
-            incidencia,
-            generar_ruta_auto=auto_generar_ruta
-        )
-        
-        # Si se generó ruta, agregar información en la respuesta
-        if ruta_generada:
-            # Se puede agregar a headers o a un campo extra
-            # Por ahora solo retornamos la incidencia
-            # El cliente puede verificar si el estado cambió a 'asignada'
-            pass
-        
-        return nueva_incidencia
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Error al crear incidencia: {str(e)}"
-        )
+    # Contar por zona
+    zonas = db.query(Incidencia.zona).distinct().all()
+    por_zona = {}
+    for (zona_val,) in zonas:
+        if zona_val:
+            count = db.query(Incidencia).filter(Incidencia.zona == zona_val).count()
+            por_zona[zona_val] = count
 
-
-@router.get("/", response_model=List[IncidenciaResponse])
-def listar_incidencias(
-    estado: Optional[EstadoIncidencia] = None,
-    zona: Optional[ZonaIncidencia] = None,
-    tipo: Optional[str] = None,
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
-    db: Session = Depends(get_db)
-):
-    """
-    Listar incidencias con filtros opcionales
-    """
-    query = db.query(Incidencia)
-    
-    if estado:
-        query = query.filter(Incidencia.estado == estado.value)
-    if zona:
-        query = query.filter(Incidencia.zona == zona.value)
-    if tipo:
-        query = query.filter(Incidencia.tipo == tipo)
-    
-    incidencias = query.order_by(Incidencia.reportado_en.desc()).offset(skip).limit(limit).all()
-    return incidencias
-
-
-@router.get("/stats", response_model=IncidenciaStats)
-def obtener_estadisticas(db: Session = Depends(get_db)):
-    """
-    Obtener estadísticas generales de incidencias
-    """
-    stats = IncidenciaService.obtener_estadisticas(db)
-    return stats
-
-
-@router.get("/zona/{zona}/umbral")
-def verificar_umbral_zona(
-    zona: ZonaIncidencia,
-    db: Session = Depends(get_db)
-):
-    """
-    Verificar si una zona alcanzó el umbral para generar ruta
-    
-    Returns:
-        - debe_generar_ruta: bool
-        - suma_gravedad: int
-        - umbral_configurado: int
-    """
-    debe_generar, suma = IncidenciaService.verificar_umbral_ruta(db, zona.value)
-    
-    config = db.query(Config).filter(Config.clave == 'umbral_gravedad').first()
-    umbral = int(config.valor) if config else 20
-    
     return {
-        "zona": zona.value,
-        "suma_gravedad": suma,
-        "umbral_configurado": umbral,
-        "debe_generar_ruta": debe_generar,
-        # Ahora se muestran incidencias VALIDADAS (las que cuentan para rutas)
-        "incidencias_validadas": db.query(Incidencia).filter(
-            Incidencia.zona == zona.value,
-            Incidencia.estado == 'validada'
-        ).count()
+        "total": total,
+        "por_estado": por_estado,
+        "por_zona": por_zona,
     }
 
 
-
-@router.post("/{incidencia_id}/validate")
-def validar_incidencia(
-    incidencia_id: int,
-    generar_ruta_auto: bool = Query(True, description="Si True, tras validar verifica umbral y genera ruta automáticamente si corresponde"),
-    db: Session = Depends(get_db)
+@router.get("/", response_model=List[IncidenciaResponse])
+async def listar_incidencias(
+    db: Annotated[Session, Depends(get_db)],
+    estado: Optional[str] = None,
+    zona: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 100,
 ):
-    """
-    Validar una incidencia como administrador. Solo incidencias validadas pueden
-    ser consideradas para generación de rutas.
-    """
-    try:
-        incidencia, ruta_generada = IncidenciaService.validar_incidencia(db, incidencia_id, generar_ruta_auto=generar_ruta_auto)
+    """Listar todas las incidencias"""
+    query = db.query(Incidencia)
 
-        response = {"incidencia_id": incidencia.id, "estado": incidencia.estado}
-        if ruta_generada:
-            response["ruta_generada_id"] = ruta_generada.id
+    if estado:
+        query = query.filter(Incidencia.estado == estado)
+    if zona:
+        query = query.filter(Incidencia.zona == zona)
 
-        return response
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    return query.offset(skip).limit(limit).all()
+
+
+@router.post("/", response_model=IncidenciaResponse, status_code=status.HTTP_201_CREATED)
+async def crear_incidencia(
+    incidencia: IncidenciaCreate,
+    db: Annotated[Session, Depends(get_db)]
+):
+    """Crear nueva incidencia"""
+    new_incident = Incidencia(
+        tipo=incidencia.tipo,
+        gravedad=incidencia.gravedad,
+        descripcion=incidencia.descripcion,
+        foto_url=incidencia.foto_url,
+        lat=incidencia.lat,
+        lon=incidencia.lon,
+        zona=incidencia.zona,
+        usuario_id=incidencia.usuario_id,
+        estado="pendiente",
+        reportado_en=datetime.utcnow(),
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(new_incident)
+    db.commit()
+    db.refresh(new_incident)
+    return new_incident
 
 
 @router.get("/{incidencia_id}", response_model=IncidenciaResponse)
-def obtener_incidencia(
-    incidencia_id: int,
-    db: Session = Depends(get_db)
-):
-    """
-    Obtener una incidencia por ID
-    """
+async def obtener_incidencia(incidencia_id: int, db: Annotated[Session, Depends(get_db)]):
+    """Obtener una incidencia específica"""
     incidencia = db.query(Incidencia).filter(Incidencia.id == incidencia_id).first()
-    
     if not incidencia:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Incidencia {incidencia_id} no encontrada"
-        )
-    
+        raise HTTPException(status_code=404, detail="Incidencia no encontrada")
     return incidencia
 
 
 @router.patch("/{incidencia_id}", response_model=IncidenciaResponse)
-def actualizar_incidencia(
+async def actualizar_incidencia(
     incidencia_id: int,
-    incidencia_update: IncidenciaUpdate,
-    db: Session = Depends(get_db)
+    payload: dict,
+    db: Annotated[Session, Depends(get_db)]
 ):
-    """
-    Actualizar una incidencia existente
-    """
+    """Actualizar una incidencia"""
     incidencia = db.query(Incidencia).filter(Incidencia.id == incidencia_id).first()
-    
     if not incidencia:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Incidencia {incidencia_id} no encontrada"
-        )
-    
-    # Actualizar campos
-    update_data = incidencia_update.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
+        raise HTTPException(status_code=404, detail="Incidencia no encontrada")
+
+    for key, value in payload.items():
         if hasattr(incidencia, key):
-            setattr(incidencia, key, value.value if hasattr(value, 'value') else value)
-    
+            setattr(incidencia, key, value)
+
     db.commit()
     db.refresh(incidencia)
-    
     return incidencia
 
 
-@router.delete("/{incidencia_id}", status_code=status.HTTP_204_NO_CONTENT)
-def eliminar_incidencia(
-    incidencia_id: int,
-    db: Session = Depends(get_db)
-):
-    """
-    Eliminar (soft delete) una incidencia
-    """
+@router.delete("/{incidencia_id}")
+async def eliminar_incidencia(incidencia_id: int, db: Annotated[Session, Depends(get_db)]):
+    """Eliminar una incidencia"""
     incidencia = db.query(Incidencia).filter(Incidencia.id == incidencia_id).first()
-    
     if not incidencia:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Incidencia {incidencia_id} no encontrada"
-        )
-    
-    # Cancelar en lugar de eliminar
-    incidencia.estado = 'cancelada'
+        raise HTTPException(status_code=404, detail="Incidencia no encontrada")
+
+    db.delete(incidencia)
     db.commit()
-    
-    return None
+    return {"mensaje": "Incidencia eliminada"}
