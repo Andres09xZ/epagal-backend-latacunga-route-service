@@ -22,7 +22,8 @@ app = FastAPI(
 
 # Configuración CORS - Orígenes permitidos (hardcoded para producción)
 allowed_origins = [
-    "https://tesis-1-z78t.onrender.com",  # Frontend en producción
+    "https://epagal-backend-routing-latest.onrender.com",  # Backend en producción
+    "https://tesis-1-z78t.onrender.com",  # Frontend en producción (si existe)
     "http://localhost:3000",               # React/Vue local
     "http://localhost:8000",               # Dashboard local
     "http://localhost:8080",               # Desarrollo local
@@ -34,6 +35,10 @@ allowed_origins = [
     "ionic://localhost",                   # Ionic
     "http://localhost",                    # Genérico local
     "null",                                # Archivos HTML locales (file://)
+    "http://10.52.239.59:7000",           # App operador Expo/React Native
+    "http://10.52.239.59:9000",           # Acceso directo desde la red local
+    "http://10.52.239.59:8000",           # Dashboard desde la red local
+    "http://10.52.239.59",                 # IP base sin puerto
 ]
 
 app.add_middleware(
@@ -86,8 +91,49 @@ def root():
 
 @app.get("/health")
 def health_check():
-    """Health check endpoint"""
+    """
+    Health check endpoint - Verifica el estado del servicio
+    Útil para monitoreo y verificación de despliegue
+    """
+    from datetime import datetime
+    import platform
+    
+    # Verificar conexión a base de datos
+    db_status = "ok"
+    try:
+        from app.database import SessionLocal
+        db = SessionLocal()
+        db.execute("SELECT 1")
+        db.close()
+    except Exception as e:
+        db_status = f"error: {str(e)}"
+    
+    # Verificar conexión a OSRM
+    osrm_status = "ok"
+    try:
+        import requests
+        osrm_url = os.getenv("OSRM_URL", "http://osrm:5000")
+        response = requests.get(f"{osrm_url}/route/v1/driving/-78.617,-0.933;-78.618,-0.934", timeout=2.0)
+        if response.status_code != 200:
+            osrm_status = f"warning: status {response.status_code}"
+    except Exception as e:
+        osrm_status = f"error: {str(e)}"
+    
     return {
-        "status": "ok",
-        "service": "incidencias-api"
+        "status": "healthy",
+        "service": "EPAGAL Backend - Sistema de Gestión de Incidencias",
+        "version": "2.0.0",
+        "timestamp": datetime.utcnow().isoformat(),
+        "environment": os.getenv("ENVIRONMENT", "production"),
+        "python_version": platform.python_version(),
+        "checks": {
+            "database": db_status,
+            "osrm_service": osrm_status,
+            "api": "ok"
+        },
+        "endpoints": {
+            "docs": "/docs",
+            "redoc": "/redoc",
+            "api_base": "/api"
+        }
     }

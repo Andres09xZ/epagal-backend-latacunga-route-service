@@ -15,7 +15,7 @@ from app.services.auth_service import AuthService
 from app.models import Usuario, Conductor
 
 
-router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
+router = APIRouter(prefix="/auth", tags=["Autenticación"])
 
 # Esquema HTTPBearer para tokens (más simple en Swagger)
 security = HTTPBearer()

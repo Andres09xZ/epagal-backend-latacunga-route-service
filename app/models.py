@@ -1,172 +1,276 @@
 """
-Modelos SQLAlchemy para la base de datos
+Modelos SQLAlchemy para el sistema de gestión de incidencias y rutas
+Fecha: 2025-12-13
 """
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Float, ForeignKey, Text, Enum  # type: ignore[import]
-from sqlalchemy.dialects.postgresql import UUID  # type: ignore[import]
-from sqlalchemy.orm import relationship  # type: ignore[import]
+from sqlalchemy import (
+    Column, Integer, String, Text, TIMESTAMP, Boolean, 
+    SmallInteger, CheckConstraint, ForeignKey, Interval,
+    Float, func
+)
+from sqlalchemy.orm import relationship
+from geoalchemy2 import Geometry
 from datetime import datetime
+
 from app.database import Base
-import uuid
-import enum
-
-
-class User(Base):
-    """Modelo de usuario (coincide con esquema Neon)"""
-    __tablename__ = "users"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    email = Column(Text, unique=True, index=True)
-    username = Column(Text, unique=True, index=True, nullable=False)
-    password_hash = Column(String(128))
-    role = Column(Text, nullable=False)
-    is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime(timezone=True))
-    updated_at = Column(DateTime(timezone=True))
-    deleted_at = Column(DateTime(timezone=True))
-    phone = Column(Text, unique=True)
-    display_name = Column(Text)
-    status = Column(Text, default='ACTIVE')
-
-
-class Conductor(Base):
-    """Modelo de conductor"""
-    __tablename__ = "conductores"
-
-    id = Column(Integer, primary_key=True, index=True)
-    cedula = Column(String, unique=True, index=True, nullable=False)
-    nombre_completo = Column(String, nullable=False)
-    email = Column(String, unique=True, index=True, nullable=False)
-    telefono = Column(String, nullable=False)
-    username = Column(String, unique=True, index=True, nullable=False)
-    licencia_tipo = Column(String, nullable=False)  # C, D, E, etc
-    zona_preferida = Column(String, nullable=True)
-    estado = Column(String, default="disponible")  # disponible, ocupado, descansa
-    usuario_id = Column(Integer, nullable=True)  # Sin FK (users.id es UUID)
-    fecha_contratacion = Column(DateTime, default=datetime.utcnow)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    vehiculos = relationship("Vehiculo", back_populates="conductor")
-    asignaciones = relationship("Asignacion", back_populates="conductor")
-
-
-class Vehiculo(Base):
-    """Modelo de vehículo"""
-    __tablename__ = "vehiculos"
-
-    id = Column(Integer, primary_key=True, index=True)
-    placa = Column(String, unique=True, index=True, nullable=False)
-    marca = Column(String, nullable=False)
-    modelo = Column(String, nullable=False)
-    capacidad_toneladas = Column(Float, nullable=False)
-    año = Column(Integer, nullable=False)
-    estado = Column(String, default="disponible")
-    conductor_id = Column(Integer, ForeignKey("conductores.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    conductor = relationship("Conductor", back_populates="vehiculos")
-    asignaciones = relationship("Asignacion", back_populates="vehiculo")
-
-
-class Ruta(Base):
-    """Modelo de ruta"""
-    __tablename__ = "rutas"
-
-    id = Column(Integer, primary_key=True, index=True)
-    nombre = Column(String, nullable=False)
-    descripcion = Column(String, nullable=True)
-    distancia_km = Column(Float, nullable=False)
-    tiempo_estimado_minutos = Column(Integer, nullable=False)
-    estado = Column(String, default="activa")
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    asignaciones = relationship("Asignacion", back_populates="ruta")
 
 
 class Incidencia(Base):
-    """Modelo de incidencia/reporte ciudadano (coincide con Neon)"""
+    """
+    Modelo para reportes de incidencias ciudadanas
+    Tipos: acopio, zona_critica, animal_muerto
+    """
     __tablename__ = "incidencias"
 
     id = Column(Integer, primary_key=True, index=True)
     tipo = Column(String(20), nullable=False)
-    gravedad = Column(Integer, nullable=False)
+    gravedad = Column(SmallInteger, nullable=False)  # 1, 3 o 5
     descripcion = Column(Text)
     foto_url = Column(String(255))
     lat = Column(Float, nullable=False)
     lon = Column(Float, nullable=False)
-    zona = Column(String(10))
-    estado = Column(String(15))
-    ventana_inicio = Column(DateTime, nullable=True)
-    ventana_fin = Column(DateTime, nullable=True)
-    reportado_en = Column(DateTime)
-    usuario_id = Column(Integer)  # Sin FK (users.id es UUID)
-    created_at = Column(DateTime)
-    updated_at = Column(DateTime)
+    geom = Column(Geometry('POINT', srid=4326), nullable=False)
+    utm_easting = Column(Float)
+    utm_northing = Column(Float)
+    zona = Column(String(10))  # 'oriental' o 'occidental'
+    ventana_inicio = Column(TIMESTAMP)
+    ventana_fin = Column(TIMESTAMP)
+    estado = Column(String(15), default='pendiente')  # pendiente, asignada, completada, cancelada
+    reportado_en = Column(TIMESTAMP, default=datetime.utcnow)
+    usuario_id = Column(Integer, nullable=True)
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+    updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Constraints
+    __table_args__ = (
+        CheckConstraint("tipo IN ('acopio', 'zona_critica', 'animal_muerto')", name='check_tipo'),
+        CheckConstraint("gravedad IN (1, 3, 5)", name='check_gravedad'),
+        CheckConstraint("zona IN ('oriental', 'occidental')", name='check_zona'),
+        CheckConstraint("estado IN ('pendiente', 'validada', 'asignada', 'completada', 'cancelada')", name='check_estado'),
+    )
+
+    # Relaciones
+    detalles_ruta = relationship("RutaDetalle", back_populates="incidencia")
+
+    def __repr__(self):
+        return f"<Incidencia(id={self.id}, tipo={self.tipo}, gravedad={self.gravedad}, estado={self.estado})>"
 
 
-
-# Modelo de Tarea
-class Task(Base):
-    __tablename__ = "tasks"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, nullable=False, default=uuid.uuid4)
-    titulo = Column(String, nullable=False)
-    descripcion = Column(Text, nullable=True)
-    tipo = Column(String, nullable=False, default="RECOLECCION")
-    prioridad = Column(String, nullable=False, default="MEDIA")
-    estado = Column(String, nullable=False, default="PENDIENTE")
-    progreso = Column(Integer, default=0)
-    fecha_limite = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
-    conductor_id = Column(Integer, ForeignKey("conductores.id"), nullable=True)
-    ruta_id = Column(Integer, ForeignKey("rutas.id"), nullable=True)
-
-    conductor = relationship("Conductor")
-    ruta = relationship("Ruta")
-
-class ReportType(str, enum.Enum):
-    ZONA_CRITICA = "ZONA_CRITICA"
-    PUNTO_ACOPIO_LLENO = "PUNTO_ACOPIO_LLENO"
-
-class ReportState(str, enum.Enum):
-    ENVIADO = "ENVIADO"
-    EN_PROCESO = "EN_PROCESO"
-    COMPLETADO = "COMPLETADO"
-    CERRADO = "CERRADO"
-
-class Report(Base):
-    """Modelo de reporte de incidencias desde APK (schema real de Neon)"""
-    __tablename__ = "reports"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
-    type = Column(String(50), nullable=False)
-    lat = Column(Float)
-    lon = Column(Float)
-    photo_url = Column(Text)
-    description = Column(Text)
-    status = Column(String(20))
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    synced = Column(Boolean, default=False)
-    report_location_id = Column(UUID(as_uuid=True))
-    deleted_at = Column(DateTime)
-
-
-class Asignacion(Base):
-    """Modelo de asignación de ruta a conductor"""
-    __tablename__ = "asignaciones"
+class RutaGenerada(Base):
+    """
+    Modelo para rutas optimizadas generadas por OR-Tools
+    Una ruta puede incluir múltiples camiones
+    """
+    __tablename__ = "rutas_generadas"
 
     id = Column(Integer, primary_key=True, index=True)
-    conductor_id = Column(Integer, ForeignKey("conductores.id"), nullable=False)
-    vehiculo_id = Column(Integer, ForeignKey("vehiculos.id"), nullable=False)
-    ruta_id = Column(Integer, ForeignKey("rutas.id"), nullable=False)
-    fecha_asignacion = Column(DateTime, default=datetime.utcnow)
-    fecha_inicio = Column(DateTime, nullable=True)
-    fecha_fin = Column(DateTime, nullable=True)
-    estado = Column(String, default="pendiente")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    zona = Column(String(10), nullable=False)  # 'oriental' o 'occidental'
+    fecha_generacion = Column(TIMESTAMP, default=datetime.utcnow)
+    suma_gravedad = Column(Integer, nullable=False)
+    costo_total = Column(Float)  # distancia o tiempo total
+    duracion_estimada = Column(Interval)
+    camiones_usados = Column(SmallInteger)
+    estado = Column(String(15), default='planeada')  # planeada, asignada, en_ejecucion, completada
+    notas = Column(Text)
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+    updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # Constraints
+    __table_args__ = (
+        CheckConstraint("zona IN ('oriental', 'occidental')", name='check_ruta_zona'),
+        CheckConstraint("estado IN ('planeada', 'asignada', 'en_ejecucion', 'completada')", name='check_ruta_estado'),
+    )
+
+    # Relaciones
+    detalles = relationship("RutaDetalle", back_populates="ruta", cascade="all, delete-orphan")
+    asignaciones = relationship("AsignacionConductor", back_populates="ruta", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<RutaGenerada(id={self.id}, zona={self.zona}, estado={self.estado}, camiones={self.camiones_usados})>"
+
+
+class RutaDetalle(Base):
+    """
+    Modelo para puntos individuales en una ruta
+    Incluye: depósito, incidencias y botadero
+    """
+    __tablename__ = "rutas_detalle"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ruta_id = Column(Integer, ForeignKey('rutas_generadas.id', ondelete='CASCADE'), nullable=False)
+    camion_tipo = Column(String(10))  # 'lateral' o 'posterior'
+    camion_id = Column(String(20))  # placa del camión
+    orden = Column(SmallInteger, nullable=False)  # secuencia en la ruta
+    incidencia_id = Column(Integer, ForeignKey('incidencias.id', ondelete='SET NULL'), nullable=True)
+    tipo_punto = Column(String(15))  # 'deposito', 'incidencia', 'botadero'
+    lat = Column(Float)
+    lon = Column(Float)
+    llegada_estimada = Column(TIMESTAMP)
+    tiempo_servicio = Column(Interval, default='10 minutes')
+    carga_acumulada = Column(SmallInteger)
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+
+    # Constraints
+    __table_args__ = (
+        CheckConstraint("camion_tipo IN ('lateral', 'posterior')", name='check_camion_tipo'),
+        CheckConstraint("tipo_punto IN ('deposito', 'incidencia', 'botadero')", name='check_tipo_punto'),
+    )
+
+    # Relaciones
+    ruta = relationship("RutaGenerada", back_populates="detalles")
+    incidencia = relationship("Incidencia", back_populates="detalles_ruta")
+
+    def __repr__(self):
+        return f"<RutaDetalle(id={self.id}, ruta={self.ruta_id}, orden={self.orden}, tipo={self.tipo_punto})>"
+
+
+class PuntoFijo(Base):
+    """
+    Modelo para puntos fijos del sistema: depósito y botadero
+    """
+    __tablename__ = "puntos_fijos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String(50), unique=True, nullable=False)
+    tipo = Column(String(15))  # 'deposito' o 'botadero'
+    lat = Column(Float, nullable=False)
+    lon = Column(Float, nullable=False)
+    geom = Column(Geometry('POINT', srid=4326), nullable=False)
+    activo = Column(Boolean, default=True)
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+    updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Constraints
+    __table_args__ = (
+        CheckConstraint("tipo IN ('deposito', 'botadero')", name='check_punto_tipo'),
+    )
+
+    def __repr__(self):
+        return f"<PuntoFijo(id={self.id}, nombre={self.nombre}, tipo={self.tipo})>"
+
+
+class Config(Base):
+    """
+    Modelo para configuración global del sistema
+    """
+    __tablename__ = "config"
+
+    id = Column(Integer, primary_key=True, index=True)
+    clave = Column(String(50), unique=True, nullable=False)
+    valor = Column(Text, nullable=False)
+    descripcion = Column(Text)
+    tipo_dato = Column(String(20), default='string')  # string, integer, float, boolean
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+    updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Constraints
+    __table_args__ = (
+        CheckConstraint("tipo_dato IN ('string', 'integer', 'float', 'boolean')", name='check_tipo_dato'),
+    )
+
+    def __repr__(self):
+        return f"<Config(clave={self.clave}, valor={self.valor})>"
+
+    def get_valor_convertido(self):
+        """Convierte el valor según el tipo de dato especificado"""
+        if self.tipo_dato == 'integer':
+            return int(self.valor)
+        elif self.tipo_dato == 'float':
+            return float(self.valor)
+        elif self.tipo_dato == 'boolean':
+            return self.valor.lower() in ('true', '1', 'yes', 'si')
+        return self.valor
+
+
+class Usuario(Base):
+    """
+    Modelo para usuarios del sistema
+    Tipos: admin, conductor, ciudadano
+    """
+    __tablename__ = "usuarios"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(50), unique=True, nullable=False, index=True)
+    email = Column(String(100), unique=True, nullable=False, index=True)
+    password_hash = Column(String(255), nullable=False)
+    tipo_usuario = Column(String(15), nullable=False, default='ciudadano')
+    activo = Column(Boolean, default=True)
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+    updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Constraints
+    __table_args__ = (
+        CheckConstraint("tipo_usuario IN ('admin', 'conductor', 'ciudadano')", name='check_tipo_usuario'),
+    )
+
+    # Relaciones
+    conductor = relationship("Conductor", back_populates="usuario", uselist=False)
+
+    def __repr__(self):
+        return f"<Usuario(id={self.id}, username={self.username}, tipo={self.tipo_usuario})>"
+
+
+class Conductor(Base):
+    """
+    Modelo para conductores de camiones recolectores
+    Extiende información del usuario con datos específicos del conductor
+    """
+    __tablename__ = "conductores"
+
+    id = Column(Integer, primary_key=True, index=True)
+    usuario_id = Column(Integer, ForeignKey('usuarios.id', ondelete='CASCADE'), unique=True, nullable=False)
+    nombre_completo = Column(String(100), nullable=False)
+    cedula = Column(String(10), unique=True, nullable=False, index=True)
+    telefono = Column(String(15))
+    licencia_tipo = Column(String(5))  # Tipo C, D, E
+    fecha_contratacion = Column(TIMESTAMP, default=datetime.utcnow)
+    estado = Column(String(15), default='disponible')  # disponible, ocupado, inactivo
+    zona_preferida = Column(String(15), default='ambas')  # oriental, occidental, ambas
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+    updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Constraints
+    __table_args__ = (
+        CheckConstraint("estado IN ('disponible', 'ocupado', 'inactivo')", name='check_conductor_estado'),
+        CheckConstraint("zona_preferida IN ('oriental', 'occidental', 'ambas')", name='check_conductor_zona'),
+        CheckConstraint("licencia_tipo IN ('C', 'D', 'E')", name='check_licencia_tipo'),
+    )
+
+    # Relaciones
+    usuario = relationship("Usuario", back_populates="conductor")
+    asignaciones = relationship("AsignacionConductor", back_populates="conductor", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<Conductor(id={self.id}, nombre={self.nombre_completo}, estado={self.estado})>"
+
+
+class AsignacionConductor(Base):
+    """
+    Modelo para asignaciones de conductores a rutas
+    Cada camión en una ruta tiene un conductor asignado
+    """
+    __tablename__ = "asignaciones_conductores"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ruta_id = Column(Integer, ForeignKey('rutas_generadas.id', ondelete='CASCADE'), nullable=False)
+    conductor_id = Column(Integer, ForeignKey('conductores.id', ondelete='CASCADE'), nullable=False)
+    camion_tipo = Column(String(10), nullable=False)  # 'lateral' o 'posterior'
+    camion_id = Column(String(20))  # placa del camión (opcional)
+    fecha_asignacion = Column(TIMESTAMP, default=datetime.utcnow)
+    fecha_inicio = Column(TIMESTAMP, nullable=True)
+    fecha_finalizacion = Column(TIMESTAMP, nullable=True)
+    estado = Column(String(15), default='asignado')  # asignado, iniciado, completado, cancelado
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+    updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Constraints
+    __table_args__ = (
+        CheckConstraint("camion_tipo IN ('lateral', 'posterior')", name='check_asignacion_camion_tipo'),
+        CheckConstraint("estado IN ('asignado', 'iniciado', 'completado', 'cancelado')", name='check_asignacion_estado'),
+    )
+
+    # Relaciones
+    ruta = relationship("RutaGenerada", back_populates="asignaciones")
     conductor = relationship("Conductor", back_populates="asignaciones")
-    vehiculo = relationship("Vehiculo", back_populates="asignaciones")
-    ruta = relationship("Ruta", back_populates="asignaciones")
+
+    def __repr__(self):
+        return f"<AsignacionConductor(id={self.id}, ruta={self.ruta_id}, conductor={self.conductor_id}, estado={self.estado})>"

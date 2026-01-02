@@ -314,15 +314,21 @@ class AsignacionService:
                 detail="El conductor ya está asignado a esta ruta"
             )
         
-        # Crear asignación
+        # Crear asignación en estado 'iniciado' para que esté en ejecución inmediata
         asignacion = AsignacionConductor(
             ruta_id=data.ruta_id,
             conductor_id=data.conductor_id,
             camion_tipo=data.camion_tipo,
             camion_id=data.camion_id,
-            fecha_inicio=getattr(data, 'fecha_inicio', None),
-            estado='asignado'
+            fecha_inicio=None,  # No hay fecha_inicio hasta que el conductor inicie físicamente
+            estado='asignado'  # Estado inicial: solo asignado, no iniciado
         )
+        
+        # Actualizar estado de la ruta a 'asignada' (no en_ejecucion aún)
+        ruta.estado = 'asignada'
+        
+        # Actualizar estado del conductor a 'ocupado'
+        conductor.estado = 'ocupado'
         
         db.add(asignacion)
         db.commit()
@@ -424,7 +430,7 @@ class AsignacionService:
         ruta = db.query(RutaGenerada).filter(
             RutaGenerada.id == asignacion.ruta_id
         ).first()
-        if ruta and ruta.estado == 'planeada':
+        if ruta and ruta.estado in ['planeada', 'asignada']:  # Puede cambiar desde planeada o asignada
             ruta.estado = 'en_ejecucion'
         
         db.commit()

@@ -43,6 +43,7 @@
             <button class="tab-btn active" data-tab="incidencias">📋 Incidencias</button>
             <button class="tab-btn" data-tab="rutas">🗺️ Rutas</button>
             <button class="tab-btn" data-tab="conductores">👷 Conductores</button>
+            <button class="tab-btn" data-tab="horarios">📅 Horarios</button>
             <button class="tab-btn" data-tab="stats">📊 Estadísticas</button>
         </nav>
 
@@ -109,6 +110,25 @@
                 
                 <div id="conductoresList" class="table-container">
                     <div class="loading">Cargando conductores...</div>
+                </div>
+            </div>
+
+            <!-- HORARIOS TAB -->
+            <div id="horarios" class="tab-content">
+                <div class="content-header">
+                    <h2>📅 Calendario de Rutas Programadas</h2>
+                    <div class="filters">
+                        <select id="filterHorarioZona" onchange="loadHorarios()">
+                            <option value="">Todas las zonas</option>
+                            <option value="oriental">Oriental</option>
+                            <option value="occidental">Occidental</option>
+                        </select>
+                        <button onclick="loadHorarios()" class="btn btn-secondary">🔄 Actualizar</button>
+                    </div>
+                </div>
+                
+                <div id="horariosContent">
+                    <div class="loading">Cargando horarios...</div>
                 </div>
             </div>
 
@@ -282,6 +302,16 @@
         </div>
     </div>
 
-    <script src="app.js"></script>
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-spinner">
+            <div class="spinner"></div>
+            <h3>Generando Ruta</h3>
+            <p>Por favor espera mientras optimizamos la ruta...</p>
+        </div>
+    </div>
+
+    <script src="app.js?v=2.0"></script>
 </body>
 </html>
+
