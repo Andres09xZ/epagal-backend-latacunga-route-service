@@ -7,7 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 
 from app.database import engine, Base
-from app.routers import incidencias, rutas, auth, conductores, tasks, notifications, reports, reportes, operadores
+# TODO: reportes router necesita el modelo Report en models.py
+from app.routers import incidencias, rutas, auth, conductores, tasks, notifications, reports, operadores  # reportes
 
 # Crear tablas
 Base.metadata.create_all(bind=engine)
@@ -68,7 +69,7 @@ app.include_router(rutas.router, prefix="/api")
 app.include_router(tasks.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
 app.include_router(reports.router, prefix="/api")
-app.include_router(reportes.router, prefix="/api")
+# app.include_router(reportes.router, prefix="/api")  # TODO: necesita modelo Report
 app.include_router(operadores.router, prefix="/api")
 
 

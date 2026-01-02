@@ -54,8 +54,8 @@ jobs:
       
       - name: Imagen subida exitosamente
         run: |
-          echo "✅ Imagen Docker subida a Docker Hub"
-          echo "🔗 Imagen: ${{ env.DOCKER_IMAGE }}:${{ env.DOCKER_TAG }}"
+          echo "Imagen Docker subida a Docker Hub"
+          echo "Imagen: ${{ env.DOCKER_IMAGE }}:${{ env.DOCKER_TAG }}"
 
   deploy-to-render:
     name: Deploy to Render
@@ -85,7 +85,7 @@ jobs:
           echo "⏳ Esperando a que Render complete el deploy..."
           echo "📍 Service ID: $SERVICE_ID"
           
-          MAX_ATTEMPTS=60  # 60 intentos x 10 segundos = 10 minutos máximo
+          MAX_ATTEMPTS=20  # 20 intentos x 15 segundos = 5 minutos máximo
           ATTEMPT=0
           DEPLOY_STATUS="building"
           
@@ -107,20 +107,33 @@ jobs:
               echo "✅ Deploy completado exitosamente!"
               echo "status=success" >> $GITHUB_OUTPUT
               exit 0
-            elif [ "$DEPLOY_STATUS" = "build_failed" ] || [ "$DEPLOY_STATUS" = "deactivated" ]; then
+            elif [ "$DEPLOY_STATUS" = "build_failed" ] || [ "$DEPLOY_STATUS" = "deactivated" ] || [ "$DEPLOY_STATUS" = "deploy_failed" ]; then
               echo "❌ Deploy falló con estado: $DEPLOY_STATUS"
               echo "status=failed" >> $GITHUB_OUTPUT
               
-              # Intentar obtener logs del deploy fallido
+              # Obtener logs del deploy fallido
               echo ""
-              echo "📋 Obteniendo logs del deploy fallido..."
+              echo "📋 Obteniendo logs del error en Render..."
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              echo "🔴 LOGS DE ERROR DE RENDER:"
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              
+              # Obtener logs recientes del servicio
               LOGS=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
-                "https://api.render.com/v1/services/$SERVICE_ID/deploys/$DEPLOY_ID/logs")
+                "https://api.render.com/v1/services/$SERVICE_ID/logs?limit=100")
+              
+              # Extraer y mostrar las últimas líneas con errores
+              echo "$LOGS" | jq -r '.[] | select(.message | contains("Error") or contains("error") or contains("Failed") or contains("failed") or contains("Traceback") or contains("ImportError") or contains("Exception")) | .message' 2>/dev/null | tail -n 50
+              
+              # Si no hay mensajes filtrados, mostrar los últimos 30 logs
+              if [ -z "$(echo "$LOGS" | jq -r '.[] | select(.message | contains("Error") or contains("error")) | .message' 2>/dev/null)" ]; then
+                echo ""
+                echo "📄 Últimos 30 logs del servicio:"
+                echo "$LOGS" | jq -r '.[].message' 2>/dev/null | tail -n 30
+              fi
               
               echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-              echo "🔴 LOGS DE RENDER (últimas 50 líneas):"
-              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-              echo "$LOGS" | jq -r '.[].message' 2>/dev/null | tail -n 50 || echo "$LOGS"
+              echo "🔗 Ver logs completos en: https://dashboard.render.com/web/$SERVICE_ID/logs"
               echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
               exit 1
             elif [ "$DEPLOY_STATUS" = "unknown" ]; then
@@ -129,10 +142,10 @@ jobs:
               echo "⏳ Deploy en progreso (estado: $DEPLOY_STATUS)..."
             fi
             
-            sleep 10
+            sleep 15  # Esperar 15 segundos entre intentos
           done
           
-          echo "⏰ Timeout: El deploy tomó más de 10 minutos"
+          echo "⏰ Timeout: El deploy tomó más de 5 minutos"
           echo "status=timeout" >> $GITHUB_OUTPUT
           exit 1
       
