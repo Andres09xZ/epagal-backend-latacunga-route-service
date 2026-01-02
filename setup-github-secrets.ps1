@@ -115,6 +115,13 @@ $result = Add-GitHubSecret `
     -Example "https://api.render.com/deploy/srv-xxxxx?key=xxxxxx"
 $secrets += @{Name="RENDER_DEPLOY_HOOK_URL"; Added=$result}
 
+# Secret 4: RENDER_API_KEY
+$result = Add-GitHubSecret `
+    -Name "RENDER_API_KEY" `
+    -Description "API Key de Render para monitorear deploys (Account Settings > API Keys, ej: rnd_xxxxx)" `
+    -Example "rnd_xxxxxxxxxxxxxxxxxxxxx"
+$secrets += @{Name="RENDER_API_KEY"; Added=$result}
+
 # Resumen
 Write-Host ""
 Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Gray

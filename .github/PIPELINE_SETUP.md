@@ -18,7 +18,7 @@ Para que el pipeline funcione, necesitas configurar los siguientes **secrets** e
 
 ### Paso 2: Agregar los Secrets
 
-Debes agregar **3 secrets**:
+Debes agregar **4 secrets**:
 
 #### 1. `DOCKER_USERNAME`
 - **Valor:** `mrengineer09` (tu usuario de Docker Hub)
@@ -43,6 +43,19 @@ Debes agregar **3 secrets**:
   4. Click en **Create Deploy Hook** si no existe
   5. Copia la URL (ejemplo: `https://api.render.com/deploy/srv-xxxxx?key=xxxxxx`)
   6. Pégala como valor del secret
+
+#### 4. `RENDER_API_KEY` ⭐ NUEVO
+- **Valor:** API Key de Render para monitorear deploys
+- **Propósito:** Permite que GitHub Actions verifique el estado del deploy y obtenga logs en caso de error
+- Para obtenerla:
+  1. Ve a https://dashboard.render.com/u/settings (Account Settings)
+  2. Scroll hasta **API Keys**
+  3. Click en **Create API Key**
+  4. Dale un nombre (ej: "GitHub Actions Monitor")
+  5. Copia la clave (comienza con `rnd_...`)
+  6. Pégala como valor del secret
+  
+> ⚠️ **Importante:** Con este secret, el pipeline ahora **esperará** a que Render complete el deploy y mostrará los logs si hay errores.
 
 ## 🔄 Cómo Funciona el Pipeline
 
