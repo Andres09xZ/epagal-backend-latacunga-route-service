@@ -7,8 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 
 from app.database import engine, Base
-# TODO: reportes necesita modelo Report, operadores necesita modelo User (o cambiar a Usuario)
-from app.routers import incidencias, rutas, auth, conductores, tasks, notifications, reports  # reportes, operadores
+from app.routers import incidencias, rutas, auth, conductores, tasks, notifications, reports, reportes, operadores
 
 # Crear tablas
 Base.metadata.create_all(bind=engine)
@@ -69,8 +68,8 @@ app.include_router(rutas.router, prefix="/api")
 app.include_router(tasks.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
 app.include_router(reports.router, prefix="/api")
-# app.include_router(reportes.router, prefix="/api")  # TODO: necesita modelo Report
-# app.include_router(operadores.router, prefix="/api")  # TODO: necesita modelo User o usar Usuario
+app.include_router(reportes.router, prefix="/api")
+app.include_router(operadores.router, prefix="/api")
 
 
 @app.get("/")
