@@ -1,6 +1,7 @@
 """
 Aplicación principal FastAPI
 Sistema de Gestión de Incidencias - EPAGAL Latacunga
+ENDPOINTS: /api/reportes y /api/operadores activados
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
