@@ -200,9 +200,10 @@ class Usuario(Base):
     updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Constraints
-    __table_args__ = (
-        CheckConstraint("tipo_usuario IN ('admin', 'conductor', 'ciudadano', 'operador')", name='check_tipo_usuario'),
-    )
+    # TODO: Migrar constraint para incluir 'operador'
+    # __table_args__ = (
+    #     CheckConstraint("tipo_usuario IN ('admin', 'conductor', 'ciudadano', 'operador')", name='check_tipo_usuario'),
+    # )
 
     # Relaciones
     conductor = relationship("Conductor", back_populates="usuario", uselist=False)
