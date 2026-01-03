@@ -3,13 +3,15 @@ Modelos SQLAlchemy para el sistema de gestión de incidencias y rutas
 Fecha: 2025-12-13
 """
 from sqlalchemy import (
-    Column, Integer, String, Text, TIMESTAMP, Boolean, 
+    Column, Integer, String, Text, TIMESTAMP, Boolean,
     SmallInteger, CheckConstraint, ForeignKey, Interval,
     Float, func
 )
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from geoalchemy2 import Geometry
 from datetime import datetime
+import uuid
 
 from app.database import Base
 
@@ -207,6 +209,28 @@ class Usuario(Base):
 
     def __repr__(self):
         return f"<Usuario(id={self.id}, username={self.username}, tipo={self.tipo_usuario})>"
+
+
+class Report(Base):
+    """Modelo de reporte de incidencias desde APK (coincide con esquema de Neon/Supabase)."""
+    __tablename__ = "reports"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), nullable=False)
+    type = Column(String(50), nullable=False)
+    lat = Column(Float)
+    lon = Column(Float)
+    photo_url = Column(Text)
+    description = Column(Text)
+    status = Column(String(20))
+    created_at = Column(TIMESTAMP, nullable=False, default=datetime.utcnow)
+    updated_at = Column(TIMESTAMP, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    synced = Column(Boolean, default=False)
+    report_location_id = Column(UUID(as_uuid=True))
+    deleted_at = Column(TIMESTAMP)
+
+    def __repr__(self):
+        return f"<Report(id={self.id}, type={self.type}, status={self.status})>"
 
 
 class Conductor(Base):
