@@ -186,7 +186,7 @@ class Config(Base):
 class Usuario(Base):
     """
     Modelo para usuarios del sistema
-    Tipos: admin, conductor, ciudadano
+    Tipos: admin, conductor, ciudadano, operador
     """
     __tablename__ = "usuarios"
 
@@ -201,7 +201,7 @@ class Usuario(Base):
 
     # Constraints
     __table_args__ = (
-        CheckConstraint("tipo_usuario IN ('admin', 'conductor', 'ciudadano')", name='check_tipo_usuario'),
+        CheckConstraint("tipo_usuario IN ('admin', 'conductor', 'ciudadano', 'operador')", name='check_tipo_usuario'),
     )
 
     # Relaciones

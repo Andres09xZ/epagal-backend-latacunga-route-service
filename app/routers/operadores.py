@@ -38,13 +38,13 @@ class OperadorResponse(BaseModel):
 async def listar_operadores(db: Annotated[Session, Depends(get_db)]):
     """Listar todos los operadores"""
     operadores = db.query(Usuario).filter(Usuario.tipo_usuario == "operador").all()
-    # Convertir UUID a string para compatibilidad con Pydantic
+    # Convertir respuesta para compatibilidad
     return [{
         "id": str(op.id),
         "email": op.email,
         "username": op.username,
-        "phone": getattr(op, 'phone', None),
-        "display_name": getattr(op, 'display_name', op.username),
+        "phone": None,  # Campo no existe en modelo
+        "display_name": op.username,  # Usar username como display_name
         "role": op.tipo_usuario,
         "status": "ACTIVE" if op.activo else "INACTIVE"
     } for op in operadores]
@@ -96,8 +96,11 @@ async def obtener_operador(operador_id: str, db: Annotated[Session, Depends(get_
         "id": str(operador.id),
         "email": operador.email,
         "username": operador.username,
-        "phone": getattr(operador, 'phone', None),
-        "display_name": getattr(operador, 'display_name', operador.username),
+        "phone": None,
+        "display_name": operador.username,
+        "role": operador.tipo_usuario,
+        "status": "ACTIVE" if operador.activo else "INACTIVE"
+    }
         "role": operador.tipo_usuario,
         "status": "ACTIVE" if operador.activo else "INACTIVE"
     }
