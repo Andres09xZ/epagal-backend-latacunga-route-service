@@ -101,9 +101,6 @@ async def obtener_operador(operador_id: str, db: Annotated[Session, Depends(get_
         "role": operador.tipo_usuario,
         "status": "ACTIVE" if operador.activo else "INACTIVE"
     }
-        "role": operador.tipo_usuario,
-        "status": "ACTIVE" if operador.activo else "INACTIVE"
-    }
 
 
 @router.put("/{operador_id}", response_model=OperadorResponse)
