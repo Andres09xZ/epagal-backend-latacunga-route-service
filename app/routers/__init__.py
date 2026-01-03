@@ -1,6 +1,6 @@
 """
 Routers de la aplicación
 """
-from app.routers import incidencias, rutas
+from app.routers import incidencias, rutas, auth, conductores, tasks, notifications, reports, reportes, operadores
 
-__all__ = ['incidencias', 'rutas']
+__all__ = ['incidencias', 'rutas', 'auth', 'conductores', 'tasks', 'notifications', 'reports', 'reportes', 'operadores']
