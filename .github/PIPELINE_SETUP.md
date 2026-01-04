@@ -59,6 +59,9 @@ Debes agregar **4 secrets**:
 
 ## 🔄 Cómo Funciona el Pipeline
 
+
+
+Probando probnad
 ### Trigger Automático
 El pipeline se ejecuta automáticamente cuando:
 - ✅ Se hace **push** a la rama `main`
