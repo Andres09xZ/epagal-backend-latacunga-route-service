@@ -118,7 +118,7 @@ jobs:
           deployment_environment: 'production'
           github_token: ${{ secrets.GITHUB_TOKEN }}
       
-      - name: Install Render CLI and retrieve logs
+      - name: Retrieve service logs and deployment information
         if: always()
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
@@ -135,15 +135,7 @@ jobs:
           echo "============================================"
           echo ""
           
-          echo "Step 1: Installing Render CLI..."
-          echo "--------------------------------------------"
-          npm install -g render-cli
-          
-          echo "Render CLI installed successfully"
-          render --version
-          echo ""
-          
-          echo "Step 2: Fetching service information..."
+          echo "Step 1: Fetching service information..."
           echo "--------------------------------------------"
           SERVICE_INFO=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
             "https://api.render.com/v1/services/$SERVICE_ID")
@@ -187,52 +179,101 @@ jobs:
             echo ""
           fi
           
-          echo "Step 4: Retrieving LIVE service logs using Render CLI..."
+          echo "Step 2: Retrieving service logs from multiple sources..."
           echo "============================================"
-          echo "Configuring Render CLI authentication..."
           
-          # Configure Render CLI with API token
-          echo "$RENDER_API_KEY" | render config set-token
-          
-          echo "Fetching last 200 log lines from the service..."
+          # Try multiple endpoints to get logs
+          echo "Attempting to fetch logs from Render API..."
           echo ""
           
-          # Try to get logs using Render CLI with tail
-          if render logs -s $SERVICE_ID --tail 200 2>&1 | tee /tmp/render_logs.txt; then
-            echo ""
+          # Method 1: Try to get logs from the main logs endpoint
+          echo "→ Trying logs endpoint..."
+          LOGS_RESPONSE=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer $RENDER_API_KEY" \
+            "https://api.render.com/v1/services/$SERVICE_ID/logs?limit=200")
+          
+          LOGS_HTTP_CODE=$(echo "$LOGS_RESPONSE" | tail -n1)
+          LOGS_BODY=$(echo "$LOGS_RESPONSE" | head -n-1)
+          
+          if [ "$LOGS_HTTP_CODE" = "200" ] && [ ! -z "$LOGS_BODY" ] && [ "$LOGS_BODY" != "404 page not found" ]; then
+            echo "✓ Logs retrieved successfully from logs endpoint!"
             echo "============================================"
-            echo "LOGS RETRIEVED SUCCESSFULLY"
+            echo "SERVICE LOGS (Last 200 entries):"
             echo "============================================"
+            echo "$LOGS_BODY" | jq -r '.[] | "\(.timestamp) [\(.level)]: \(.message)"' 2>/dev/null || echo "$LOGS_BODY"
             echo ""
             
-            # Filter for error messages
-            echo "FILTERING ERROR MESSAGES:"
+            # Filter and highlight errors
             echo "============================================"
-            if grep -iE "error|ERROR|Error|exception|Exception|fail|Fail|traceback|Traceback|fatal|Fatal|ModuleNotFoundError|ImportError|SyntaxError|crashed" /tmp/render_logs.txt > /tmp/errors.txt 2>/dev/null; then
-              cat /tmp/errors.txt
-            else
-              echo "No critical error messages found in logs"
-            fi
+            echo "FILTERING CRITICAL ERRORS:"
             echo "============================================"
+            echo "$LOGS_BODY" | jq -r '.[] | select(.level == "error" or .level == "ERROR" or (.message | test("error|Error|ERROR|exception|Exception|traceback|Traceback|ModuleNotFoundError|ImportError"; "i"))) | "\(.timestamp) [\(.level)]: \(.message)"' 2>/dev/null || echo "No errors found in structured logs"
           else
-            echo "Unable to retrieve logs using Render CLI"
-            echo "Trying alternative method with curl..."
-            echo ""
+            echo "✗ Logs endpoint returned HTTP $LOGS_HTTP_CODE"
             
-            # Fallback to trying curl with events endpoint
-            EVENTS=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+            # Method 2: Try events endpoint
+            echo ""
+            echo "→ Trying events endpoint..."
+            EVENTS_RESPONSE=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer $RENDER_API_KEY" \
               "https://api.render.com/v1/services/$SERVICE_ID/events?limit=100")
             
-            if [ ! -z "$EVENTS" ] && [ "$EVENTS" != "404 page not found" ]; then
-              echo "Events retrieved:"
-              echo "$EVENTS" | jq -r '.[] | "\(.timestamp // .createdAt) - \(.type): \(.message // .description)"' 2>/dev/null || echo "$EVENTS"
+            EVENTS_HTTP_CODE=$(echo "$EVENTS_RESPONSE" | tail -n1)
+            EVENTS_BODY=$(echo "$EVENTS_RESPONSE" | head -n-1)
+            
+            if [ "$EVENTS_HTTP_CODE" = "200" ] && [ ! -z "$EVENTS_BODY" ] && [ "$EVENTS_BODY" != "404 page not found" ]; then
+              echo "✓ Events retrieved successfully!"
+              echo "============================================"
+              echo "SERVICE EVENTS:"
+              echo "============================================"
+              echo "$EVENTS_BODY" | jq -r '.[] | "\(.timestamp // .createdAt) - \(.type): \(.message // .description)"' 2>/dev/null || echo "$EVENTS_BODY"
             else
-              echo "Unable to retrieve events from API"
+              echo "✗ Events endpoint returned HTTP $EVENTS_HTTP_CODE"
+              
+              # Method 3: Try to get deploy-specific logs
+              if [ ! -z "$LATEST_DEPLOY_ID" ]; then
+                echo ""
+                echo "→ Trying deploy-specific logs for $LATEST_DEPLOY_ID..."
+                DEPLOY_LOGS_RESPONSE=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer $RENDER_API_KEY" \
+                  "https://api.render.com/v1/services/$SERVICE_ID/deploys/$LATEST_DEPLOY_ID/logs")
+                
+                DEPLOY_LOGS_HTTP_CODE=$(echo "$DEPLOY_LOGS_RESPONSE" | tail -n1)
+                DEPLOY_LOGS_BODY=$(echo "$DEPLOY_LOGS_RESPONSE" | head -n-1)
+                
+                if [ "$DEPLOY_LOGS_HTTP_CODE" = "200" ] && [ ! -z "$DEPLOY_LOGS_BODY" ] && [ "$DEPLOY_LOGS_BODY" != "404 page not found" ]; then
+                  echo "✓ Deploy logs retrieved successfully!"
+                  echo "============================================"
+                  echo "DEPLOY LOGS:"
+                  echo "============================================"
+                  echo "$DEPLOY_LOGS_BODY"
+                else
+                  echo "✗ Deploy logs returned HTTP $DEPLOY_LOGS_HTTP_CODE"
+                fi
+              fi
+              
+              # Method 4: Check service health directly
+              echo ""
+              echo "→ Checking service health..."
+              SERVICE_URL=$(echo "$SERVICE_INFO" | jq -r '.serviceDetails.url' 2>/dev/null)
+              
+              if [ ! -z "$SERVICE_URL" ] && [ "$SERVICE_URL" != "null" ]; then
+                echo "Service URL: $SERVICE_URL"
+                HEALTH_RESPONSE=$(curl -s -w "\n%{http_code}" "$SERVICE_URL/health" 2>/dev/null || echo -e "\n000")
+                HEALTH_HTTP_CODE=$(echo "$HEALTH_RESPONSE" | tail -n1)
+                HEALTH_BODY=$(echo "$HEALTH_RESPONSE" | head -n-1)
+                
+                echo "Health check HTTP code: $HEALTH_HTTP_CODE"
+                if [ "$HEALTH_HTTP_CODE" = "200" ]; then
+                  echo "✓ Service is healthy!"
+                  echo "$HEALTH_BODY"
+                else
+                  echo "✗ Service health check failed"
+                  echo "$HEALTH_BODY"
+                fi
+              fi
             fi
           fi
           echo ""
           
-          echo "Step 5: Analyzing failure patterns..."
+          echo "Step 3: Analyzing deployment status..."
           echo "--------------------------------------------"
           
           if [ "$LATEST_DEPLOY_STATUS" = "update_failed" ]; then
