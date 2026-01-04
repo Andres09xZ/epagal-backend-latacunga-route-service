@@ -1,7 +1,8 @@
 """
 Aplicación principal FastAPI
 Sistema de Gestión de Incidencias - EPAGAL Latacunga
-ENDPOINTS: /api/reportes y /api/operadores activados
+ENDPOINTS: /api/reportes, /api/operadores, /api/horarios, /api/tracking
+v2.0.1 - 2026-01-04: Horarios y Tracking GPS activados
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,8 +22,8 @@ except Exception as e:
 
 app = FastAPI(
     title="Sistema de Gestión de Incidencias - EPAGAL Latacunga",
-    description="API para gestión de reportes ciudadanos y optimización de rutas de recolección",
-    version="2.0.0",
+    description="API para gestión de reportes ciudadanos, rutas optimizadas y tracking GPS en tiempo real",
+    version="2.0.1",
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -66,14 +67,15 @@ def root():
     """Endpoint raíz"""
     return {
         "message": "API Sistema de Gestión de Incidencias - EPAGAL Latacunga",
-        "version": "2.0.0",
+        "version": "2.0.1",
         "features": [
             "Gestión de incidencias",
             "Rutas optimizadas con OSRM",
             "Autenticación JWT",
             "Gestión de conductores",
             "Asignación automática",
-            "Sistema de horarios de recolección"
+            "Sistema de horarios de recolección",
+            "Tracking GPS en tiempo real (WebSocket)"
         ],
         "docs": "/docs",
         "redoc": "/redoc",
@@ -114,7 +116,7 @@ def health_check():
     return {
         "status": "healthy",
         "service": "EPAGAL Backend - Sistema de Gestión de Incidencias",
-        "version": "2.0.0",
+        "version": "2.0.1",
         "timestamp": datetime.utcnow().isoformat(),
         "environment": os.getenv("ENVIRONMENT", "production"),
         "python_version": platform.python_version(),
@@ -126,6 +128,8 @@ def health_check():
         "endpoints": {
             "docs": "/docs",
             "redoc": "/redoc",
-            "api_base": "/api"
+            "api_base": "/api",
+            "tracking_websocket": "/api/tracking/ws/{ejecucion_id}",
+            "horarios": "/api/horarios"
         }
     }
