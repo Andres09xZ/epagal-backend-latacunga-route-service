@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 import os
 
 from app.database import engine, Base
-from app.routers import incidencias, rutas, auth, conductores, tasks, notifications, reports, reportes, operadores, horarios
+from app.routers import incidencias, rutas, auth, conductores, tasks, notifications, reports, reportes, operadores, horarios, tracking
 
 # Crear tablas
 Base.metadata.create_all(bind=engine)
@@ -50,6 +50,7 @@ app.include_router(reports.router, prefix="/api")
 app.include_router(reportes.router, prefix="/api")
 app.include_router(operadores.router, prefix="/api")
 app.include_router(horarios.router, prefix="/api")
+app.include_router(tracking.router, prefix="/api")
 
 # Montar archivos estáticos del dashboard
 dashboard_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dashboard")
