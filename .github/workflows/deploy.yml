@@ -148,7 +148,9 @@ jobs:
           fi
       
       - name: Deploy to Render with automatic retry and monitoring
+        id: render_deploy
         uses: JorgeLNJunior/render-deploy@v1.4.7
+        continue-on-error: true
         with:
           service_id: ${{ secrets.RENDER_SERVICE_ID }}
           api_key: ${{ secrets.RENDER_API_KEY }}
@@ -158,7 +160,68 @@ jobs:
           deployment_environment: 'production'
           github_token: ${{ secrets.GITHUB_TOKEN }}
       
+      - name: Retrieve Render deployment logs on failure
+        if: steps.render_deploy.outcome == 'failure'
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          echo "============================================"
+          echo "DEPLOYMENT FAILED - RETRIEVING RENDER LOGS"
+          echo "============================================"
+          echo ""
+          
+          echo "Fetching recent deploys..."
+          DEPLOYS=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+            "https://api.render.com/v1/services/$SERVICE_ID/deploys?limit=1")
+          
+          DEPLOY_ID=$(echo "$DEPLOYS" | jq -r '.[0].id // "unknown"' 2>/dev/null)
+          DEPLOY_STATUS=$(echo "$DEPLOYS" | jq -r '.[0].status // "unknown"' 2>/dev/null)
+          CREATED_AT=$(echo "$DEPLOYS" | jq -r '.[0].createdAt // "unknown"' 2>/dev/null)
+          FINISHED_AT=$(echo "$DEPLOYS" | jq -r '.[0].finishedAt // "unknown"' 2>/dev/null)
+          
+          echo "Latest Deploy Information:"
+          echo "  Deploy ID: $DEPLOY_ID"
+          echo "  Status: $DEPLOY_STATUS"
+          echo "  Started: $CREATED_AT"
+          echo "  Finished: $FINISHED_AT"
+          echo ""
+          
+          if [ "$DEPLOY_ID" != "unknown" ]; then
+            echo "============================================"
+            echo "FETCHING DEPLOYMENT LOGS FROM RENDER"
+            echo "============================================"
+            echo ""
+            
+            LOGS=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+              "https://api.render.com/v1/services/$SERVICE_ID/deploys/$DEPLOY_ID/logs")
+            
+            if [ ! -z "$LOGS" ]; then
+              echo "Deployment Logs:"
+              echo "--------------------------------------------"
+              echo "$LOGS" | jq -r '.[] | "\(.timestamp // .createdAt // "N/A") [\(.level // "INFO")] \(.message // .text // .)"' 2>/dev/null || echo "$LOGS"
+              echo "--------------------------------------------"
+              echo ""
+              
+              echo "Filtering ERROR messages:"
+              echo "--------------------------------------------"
+              echo "$LOGS" | jq -r '.[] | select(.message // .text | test("error|ERROR|Error|exception|Exception|EXCEPTION|fail|FAIL|Fail"; "i")) | "\(.timestamp // .createdAt // "N/A") - \(.message // .text // .)"' 2>/dev/null || echo "No error messages found or unable to parse"
+              echo "--------------------------------------------"
+            else
+              echo "No logs available from Render API"
+            fi
+          fi
+          
+          echo ""
+          echo "============================================"
+          echo "View complete logs in Render Dashboard:"
+          echo "  https://dashboard.render.com/web/$SERVICE_ID/deploys/$DEPLOY_ID"
+          echo "============================================"
+          
+          exit 1
+      
       - name: Verify application health
+        if: steps.render_deploy.outcome == 'success'
         run: |
           echo "Verifying application responds correctly..."
           sleep 10
