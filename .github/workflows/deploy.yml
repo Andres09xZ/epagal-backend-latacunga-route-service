@@ -137,9 +137,12 @@ jobs:
           
           echo "Step 1: Installing Render CLI..."
           echo "--------------------------------------------"
-          curl -fsSL https://github.com/render-oss/cli/releases/download/v0.1.22/render-linux-x86_64 -o render
-          chmod +x render
-          sudo mv render /usr/local/bin/
+          npm install -g @render/cli@latest || {
+            echo "Failed to install via npm, trying alternative method..."
+            curl -fsSL https://github.com/render-oss/cli/releases/latest/download/render-linux-x86_64 -o render
+            chmod +x render
+            sudo mv render /usr/local/bin/
+          }
           
           echo "Render CLI installed successfully"
           echo ""
