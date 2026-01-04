@@ -160,65 +160,146 @@ jobs:
           deployment_environment: 'production'
           github_token: ${{ secrets.GITHUB_TOKEN }}
       
-      - name: Retrieve Render deployment logs on failure
-        if: steps.render_deploy.outcome == 'failure'
+      - name: Retrieve complete Render deployment logs
+        if: always()
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
         run: |
-          echo "============================================"
-          echo "DEPLOYMENT FAILED - RETRIEVING RENDER LOGS"
-          echo "============================================"
-          echo ""
+          DEPLOY_STATUS="${{ steps.render_deploy.outcome }}"
           
-          echo "Fetching recent deploys..."
-          DEPLOYS=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
-            "https://api.render.com/v1/services/$SERVICE_ID/deploys?limit=1")
-          
-          DEPLOY_ID=$(echo "$DEPLOYS" | jq -r '.[0].id // "unknown"' 2>/dev/null)
-          DEPLOY_STATUS=$(echo "$DEPLOYS" | jq -r '.[0].status // "unknown"' 2>/dev/null)
-          CREATED_AT=$(echo "$DEPLOYS" | jq -r '.[0].createdAt // "unknown"' 2>/dev/null)
-          FINISHED_AT=$(echo "$DEPLOYS" | jq -r '.[0].finishedAt // "unknown"' 2>/dev/null)
-          
-          echo "Latest Deploy Information:"
-          echo "  Deploy ID: $DEPLOY_ID"
-          echo "  Status: $DEPLOY_STATUS"
-          echo "  Started: $CREATED_AT"
-          echo "  Finished: $FINISHED_AT"
-          echo ""
-          
-          if [ "$DEPLOY_ID" != "unknown" ]; then
+          if [ "$DEPLOY_STATUS" == "success" ]; then
             echo "============================================"
-            echo "FETCHING DEPLOYMENT LOGS FROM RENDER"
+            echo "DEPLOYMENT SUCCESSFUL"
             echo "============================================"
             echo ""
-            
-            LOGS=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
-              "https://api.render.com/v1/services/$SERVICE_ID/deploys/$DEPLOY_ID/logs")
-            
-            if [ ! -z "$LOGS" ]; then
-              echo "Deployment Logs:"
-              echo "--------------------------------------------"
-              echo "$LOGS" | jq -r '.[] | "\(.timestamp // .createdAt // "N/A") [\(.level // "INFO")] \(.message // .text // .)"' 2>/dev/null || echo "$LOGS"
-              echo "--------------------------------------------"
+          else
+            echo "============================================"
+            echo "DEPLOYMENT FAILED - ANALYZING LOGS"
+            echo "============================================"
+            echo ""
+          fi
+          
+          echo "Fetching recent deploys from Render..."
+          DEPLOYS=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+            "https://api.render.com/v1/services/$SERVICE_ID/deploys?limit=3")
+          
+          echo "API Response:"
+          echo "$DEPLOYS" | jq '.' 2>/dev/null || echo "$DEPLOYS"
+          echo ""
+          
+          DEPLOY_COUNT=$(echo "$DEPLOYS" | jq 'length' 2>/dev/null || echo "0")
+          echo "Number of recent deploys found: $DEPLOY_COUNT"
+          echo ""
+          
+          if [ "$DEPLOY_COUNT" -gt 0 ]; then
+            for i in $(seq 0 $((DEPLOY_COUNT - 1))); do
+              DEPLOY_ID=$(echo "$DEPLOYS" | jq -r ".[$i].id // \"unknown\"" 2>/dev/null)
+              DEPLOY_STATUS_API=$(echo "$DEPLOYS" | jq -r ".[$i].status // \"unknown\"" 2>/dev/null)
+              CREATED_AT=$(echo "$DEPLOYS" | jq -r ".[$i].createdAt // \"unknown\"" 2>/dev/null)
+              FINISHED_AT=$(echo "$DEPLOYS" | jq -r ".[$i].finishedAt // \"N/A\"" 2>/dev/null)
+              
+              echo "============================================"
+              echo "DEPLOY #$((i + 1)) INFORMATION"
+              echo "============================================"
+              echo "  Deploy ID: $DEPLOY_ID"
+              echo "  Status: $DEPLOY_STATUS_API"
+              echo "  Started: $CREATED_AT"
+              echo "  Finished: $FINISHED_AT"
               echo ""
               
-              echo "Filtering ERROR messages:"
-              echo "--------------------------------------------"
-              echo "$LOGS" | jq -r '.[] | select(.message // .text | test("error|ERROR|Error|exception|Exception|EXCEPTION|fail|FAIL|Fail"; "i")) | "\(.timestamp // .createdAt // "N/A") - \(.message // .text // .)"' 2>/dev/null || echo "No error messages found or unable to parse"
-              echo "--------------------------------------------"
-            else
-              echo "No logs available from Render API"
-            fi
+              if [ "$DEPLOY_ID" != "unknown" ]; then
+                echo "--------------------------------------------"
+                echo "FETCHING COMPLETE LOGS FOR DEPLOY: $DEPLOY_ID"
+                echo "--------------------------------------------"
+                echo ""
+                
+                LOGS=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+                  "https://api.render.com/v1/services/$SERVICE_ID/deploys/$DEPLOY_ID/logs")
+                
+                if [ ! -z "$LOGS" ] && [ "$LOGS" != "null" ]; then
+                  LOG_COUNT=$(echo "$LOGS" | jq 'length' 2>/dev/null || echo "0")
+                  echo "Total log entries: $LOG_COUNT"
+                  echo ""
+                  
+                  if [ "$LOG_COUNT" -gt 0 ]; then
+                    echo "COMPLETE DEPLOYMENT LOGS:"
+                    echo "============================================"
+                    echo "$LOGS" | jq -r '.[] | "\(.timestamp // .createdAt // "N/A") [\(.level // "INFO")] \(.message // .text // .)"' 2>/dev/null || echo "$LOGS"
+                    echo "============================================"
+                    echo ""
+                    
+                    echo "FILTERING CRITICAL MESSAGES (errors, failures, exceptions):"
+                    echo "============================================"
+                    ERROR_LOGS=$(echo "$LOGS" | jq -r '.[] | select(.message // .text | test("error|ERROR|Error|exception|Exception|EXCEPTION|fail|FAIL|Fail|traceback|Traceback|TRACEBACK"; "i")) | "\(.timestamp // .createdAt // "N/A") - \(.message // .text // .)"' 2>/dev/null)
+                    
+                    if [ ! -z "$ERROR_LOGS" ]; then
+                      echo "$ERROR_LOGS"
+                    else
+                      echo "No critical error messages found in logs"
+                    fi
+                    echo "============================================"
+                    echo ""
+                    
+                    if [[ "$DEPLOY_STATUS_API" =~ ^(build_failed|update_failed|deploy_failed)$ ]]; then
+                      echo "LAST 50 LOG ENTRIES (most recent):"
+                      echo "============================================"
+                      echo "$LOGS" | jq -r '.[-50:] | .[] | "\(.timestamp // .createdAt // "N/A") - \(.message // .text // .)"' 2>/dev/null || echo "$LOGS" | tail -n 50
+                      echo "============================================"
+                    fi
+                  else
+                    echo "No log entries available"
+                  fi
+                else
+                  echo "No logs available from Render API for this deploy"
+                  echo "This might indicate:"
+                  echo "  - Deploy is still initializing"
+                  echo "  - Deploy was canceled before logging started"
+                  echo "  - API returned empty response"
+                fi
+              fi
+              echo ""
+            done
+          else
+            echo "No deploys found for this service"
+            echo "This might indicate:"
+            echo "  - Service was just created"
+            echo "  - Deploy hasn't started yet"
+            echo "  - API connection issue"
           fi
           
           echo ""
           echo "============================================"
-          echo "View complete logs in Render Dashboard:"
-          echo "  https://dashboard.render.com/web/$SERVICE_ID/deploys/$DEPLOY_ID"
+          echo "FETCHING SERVICE RUNTIME LOGS (if available)"
+          echo "============================================"
+          echo ""
+          
+          SERVICE_LOGS=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+            "https://api.render.com/v1/services/$SERVICE_ID/logs?limit=100")
+          
+          if [ ! -z "$SERVICE_LOGS" ] && [ "$SERVICE_LOGS" != "null" ]; then
+            SERVICE_LOG_COUNT=$(echo "$SERVICE_LOGS" | jq 'length' 2>/dev/null || echo "0")
+            echo "Service log entries: $SERVICE_LOG_COUNT"
+            
+            if [ "$SERVICE_LOG_COUNT" -gt 0 ]; then
+              echo ""
+              echo "RECENT SERVICE LOGS:"
+              echo "--------------------------------------------"
+              echo "$SERVICE_LOGS" | jq -r '.[] | "\(.timestamp // .createdAt // "N/A") - \(.message // .text // .)"' 2>/dev/null || echo "$SERVICE_LOGS"
+              echo "--------------------------------------------"
+            fi
+          else
+            echo "No service runtime logs available"
+          fi
+          
+          echo ""
+          echo "============================================"
+          echo "LOG RETRIEVAL COMPLETE"
           echo "============================================"
           
-          exit 1
+          if [ "$DEPLOY_STATUS" != "success" ]; then
+            exit 1
+          fi
       
       - name: Verify application health
         if: steps.render_deploy.outcome == 'success'
@@ -287,16 +368,10 @@ jobs:
             echo "Health: https://epagal-backend-routing-latest.onrender.com/health"
             echo "API Docs: https://epagal-backend-routing-latest.onrender.com/docs"
             echo "Docker Hub: https://hub.docker.com/r/${{ env.DOCKER_IMAGE }}"
-            echo "Render Dashboard: https://dashboard.render.com/web/${{ secrets.RENDER_SERVICE_ID }}"
             echo "============================================"
           else
             echo "PIPELINE FAILED"
             echo ""
-            echo "Review previous logs for details"
-            
-            if [ "${{ needs.deploy-to-render.result }}" == "failure" ]; then
-              echo ""
-              echo "Deployment failed. Check Render logs at:"
-              echo "https://dashboard.render.com/web/${{ secrets.RENDER_SERVICE_ID }}/logs"
-            fi
+            echo "All relevant logs have been displayed above"
+            echo "Review the 'Retrieve complete Render deployment logs' step for detailed error information"
           fi
