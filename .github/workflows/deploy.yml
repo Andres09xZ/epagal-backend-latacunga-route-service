@@ -12,6 +12,7 @@ on:
 env:
   DOCKER_IMAGE: mrengineer09/epagal-backend-routing
   DOCKER_TAG: latest
+  MAX_DEPLOY_ATTEMPTS: 5
 
 jobs:
   build-and-push:
@@ -66,6 +67,7 @@ jobs:
     outputs:
       deploy_status: ${{ steps.check_deploy.outputs.status }}
       deploy_id: ${{ steps.trigger_deploy.outputs.deploy_id }}
+      deploy_attempt: ${{ steps.trigger_deploy.outputs.attempt }}
     
     steps:
       - name: Validate secrets configuration
@@ -147,23 +149,87 @@ jobs:
             exit 1
           fi
       
-      - name: Trigger Render deploy
+      - name: Trigger Render deploy with retry
         id: trigger_deploy
+        env:
+          MAX_ATTEMPTS: ${{ env.MAX_DEPLOY_ATTEMPTS }}
         run: |
-          echo "Initiating deploy on Render..."
-          RESPONSE=$(curl -s -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}")
-          echo "Render response:"
-          echo "$RESPONSE" | jq '.' 2>/dev/null || echo "$RESPONSE"
+          echo "============================================"
+          echo "Deploy Configuration"
+          echo "============================================"
+          echo "Maximum deploy attempts: $MAX_ATTEMPTS"
+          echo ""
           
-          DEPLOY_ID=$(echo "$RESPONSE" | jq -r '.id // .deploy.id // empty' 2>/dev/null || echo "unknown")
+          DEPLOY_SUCCESS=false
           
-          if [ -z "$DEPLOY_ID" ] || [ "$DEPLOY_ID" = "unknown" ]; then
-            echo "Could not obtain Deploy ID, but webhook was triggered"
-            DEPLOY_ID="webhook-triggered-$(date +%s)"
+          for ATTEMPT in $(seq 1 $MAX_ATTEMPTS); do
+            echo ""
+            echo "============================================"
+            echo "Deploy Attempt $ATTEMPT of $MAX_ATTEMPTS"
+            echo "============================================"
+            
+            echo "Initiating deploy on Render..."
+            RESPONSE=$(curl -s -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}")
+            echo "Render response:"
+            echo "$RESPONSE" | jq '.' 2>/dev/null || echo "$RESPONSE"
+            
+            DEPLOY_ID=$(echo "$RESPONSE" | jq -r '.id // .deploy.id // empty' 2>/dev/null || echo "unknown")
+            
+            if [ -z "$DEPLOY_ID" ] || [ "$DEPLOY_ID" = "unknown" ]; then
+              echo "Could not obtain Deploy ID, but webhook was triggered"
+              DEPLOY_ID="webhook-triggered-$(date +%s)"
+            fi
+            
+            echo "Deploy triggered with ID: $DEPLOY_ID"
+            echo ""
+            
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              echo "Waiting 60 seconds before checking if retry is needed..."
+              sleep 60
+              
+              echo "Checking if deploy started successfully..."
+              CHECK_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+                "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/deploys?limit=1")
+              
+              RECENT_STATUS=$(echo "$CHECK_RESPONSE" | jq -r '.[0].status // "unknown"' 2>/dev/null)
+              RECENT_ID=$(echo "$CHECK_RESPONSE" | jq -r '.[0].id // "unknown"' 2>/dev/null)
+              
+              echo "Recent deploy status: $RECENT_STATUS"
+              echo "Recent deploy ID: $RECENT_ID"
+              
+              if [[ "$RECENT_STATUS" =~ ^(building|deploying|pre_deploy|live)$ ]]; then
+                echo "Deploy appears to be processing successfully"
+                DEPLOY_SUCCESS=true
+                echo "deploy_id=$DEPLOY_ID" >> $GITHUB_OUTPUT
+                echo "attempt=$ATTEMPT" >> $GITHUB_OUTPUT
+                break
+              elif [[ "$RECENT_STATUS" =~ ^(build_failed|update_failed|deploy_failed)$ ]]; then
+                echo "Deploy failed immediately. Attempting retry..."
+                continue
+              else
+                echo "Deploy status unclear. Attempting retry..."
+                continue
+              fi
+            else
+              echo "Final attempt completed"
+              echo "deploy_id=$DEPLOY_ID" >> $GITHUB_OUTPUT
+              echo "attempt=$ATTEMPT" >> $GITHUB_OUTPUT
+              DEPLOY_SUCCESS=true
+            fi
+          done
+          
+          if [ "$DEPLOY_SUCCESS" = false ]; then
+            echo ""
+            echo "============================================"
+            echo "ERROR: All $MAX_ATTEMPTS deploy attempts failed"
+            echo "============================================"
+            exit 1
           fi
           
-          echo "deploy_id=$DEPLOY_ID" >> $GITHUB_OUTPUT
-          echo "Deploy triggered with ID: $DEPLOY_ID"
+          echo ""
+          echo "============================================"
+          echo "Deploy webhook triggered successfully on attempt $ATTEMPT"
+          echo "============================================"
       
       - name: Wait for deploy initialization
         run: |
@@ -188,7 +254,7 @@ jobs:
             ATTEMPT=$((ATTEMPT + 1))
             echo ""
             echo "============================================"
-            echo "Attempt $ATTEMPT/$MAX_ATTEMPTS"
+            echo "Status Check $ATTEMPT/$MAX_ATTEMPTS"
             echo "============================================"
             
             DEPLOYS_RESPONSE=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer $RENDER_API_KEY" \
@@ -197,8 +263,11 @@ jobs:
             HTTP_CODE=$(echo "$DEPLOYS_RESPONSE" | tail -n1)
             DEPLOYS=$(echo "$DEPLOYS_RESPONSE" | head -n-1)
             
+            echo "API HTTP Status: $HTTP_CODE"
+            
             if [ "$HTTP_CODE" != "200" ]; then
               echo "Error querying API (HTTP $HTTP_CODE)"
+              echo "API Response: $DEPLOYS"
               
               if [ "$HTTP_CODE" = "401" ]; then
                 echo "Invalid API Key"
@@ -216,19 +285,25 @@ jobs:
             fi
             
             if [ $ATTEMPT -eq 1 ]; then
-              echo "Complete API response:"
+              echo ""
+              echo "Complete API response (first check):"
+              echo "--------------------------------------------"
               echo "$DEPLOYS" | jq '.' 2>/dev/null || echo "$DEPLOYS"
+              echo "--------------------------------------------"
               echo ""
             fi
             
             if ! echo "$DEPLOYS" | jq -e 'type == "array"' > /dev/null 2>&1; then
               echo "Response is not a valid array"
-              echo "Response: $DEPLOYS"
+              echo "Response type: $(echo "$DEPLOYS" | jq 'type' 2>/dev/null || echo 'unable to determine')"
+              echo "Raw response: $DEPLOYS"
               sleep 15
               continue
             fi
             
             ARRAY_LENGTH=$(echo "$DEPLOYS" | jq 'length' 2>/dev/null || echo "0")
+            echo "Deploys array length: $ARRAY_LENGTH"
+            
             if [ "$ARRAY_LENGTH" = "0" ]; then
               echo "No deploys available yet"
               echo "Waiting for Render to start deploy..."
@@ -241,12 +316,14 @@ jobs:
             CREATED_AT=$(echo "$DEPLOYS" | jq -r '.[0].createdAt // "unknown"' 2>/dev/null)
             FINISHED_AT=$(echo "$DEPLOYS" | jq -r '.[0].finishedAt // "N/A"' 2>/dev/null)
             
-            echo "Status: $DEPLOY_STATUS"
-            echo "Deploy ID: $DEPLOY_ID"
-            echo "Started: $CREATED_AT"
+            echo ""
+            echo "Deploy Information:"
+            echo "  Status: $DEPLOY_STATUS"
+            echo "  Deploy ID: $DEPLOY_ID"
+            echo "  Started: $CREATED_AT"
             
             if [ "$FINISHED_AT" != "N/A" ] && [ "$FINISHED_AT" != "null" ]; then
-              echo "Finished: $FINISHED_AT"
+              echo "  Finished: $FINISHED_AT"
             fi
             
             if [ "$DEPLOY_STATUS" = "live" ]; then
@@ -284,7 +361,15 @@ jobs:
             fi
             
             if [ "$DEPLOY_STATUS" = "unknown" ]; then
-              echo "Unknown status - possible API issue"
+              echo ""
+              echo "WARNING: Unknown deploy status detected"
+              echo "Possible causes:"
+              echo "  - API response format changed"
+              echo "  - Deploy not yet started"
+              echo "  - Temporary API issue"
+              echo ""
+              echo "Full deploy object:"
+              echo "$DEPLOYS" | jq '.[0]' 2>/dev/null || echo "$DEPLOYS"
             elif [[ "$DEPLOY_STATUS" =~ ^(building|deploying|pre_deploy)$ ]]; then
               echo "Deploy in progress ($DEPLOY_STATUS)..."
             else
@@ -299,6 +384,9 @@ jobs:
           echo "TIMEOUT: Deploy exceeded 10 minutes"
           echo "============================================"
           echo "Last known status: $DEPLOY_STATUS"
+          echo "Last API response:"
+          echo "$DEPLOYS" | jq '.[0]' 2>/dev/null || echo "$DEPLOYS"
+          echo ""
           echo "Verify manually at: https://dashboard.render.com/web/$SERVICE_ID"
           echo "status=timeout" >> $GITHUB_OUTPUT
           exit 1
@@ -356,6 +444,7 @@ jobs:
           echo "============================================"
           echo "Docker Build: ${{ needs.build-and-push.result }}"
           echo "Render Deploy: ${{ needs.deploy-to-render.result }}"
+          echo "Deploy Attempts: ${{ needs.deploy-to-render.outputs.deploy_attempt || 'N/A' }}"
           echo "============================================"
           echo ""
           
