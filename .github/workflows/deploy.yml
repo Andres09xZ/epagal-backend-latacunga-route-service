@@ -3,11 +3,11 @@ name: Build and Deploy to Render
 on:
   push:
     branches:
-      - main  # Se ejecuta cuando hay push a main
+      - main
   pull_request:
     branches:
-      - main  # También cuando hay PR a main
-  workflow_dispatch:  # Permite ejecución manual desde GitHub
+      - main
+  workflow_dispatch:
 
 env:
   DOCKER_IMAGE: mrengineer09/epagal-backend-routing
@@ -51,17 +51,18 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=registry,ref=${{ env.DOCKER_IMAGE }}:buildcache
           cache-to: type=registry,ref=${{ env.DOCKER_IMAGE }}:buildcache,mode=max
+          platforms: linux/amd64
       
       - name: Imagen subida exitosamente
         run: |
-          echo "Imagen Docker subida a Docker Hub"
-          echo "Imagen: ${{ env.DOCKER_IMAGE }}:${{ env.DOCKER_TAG }}"
+          echo "✅ Imagen Docker subida a Docker Hub"
+          echo "📦 Imagen: ${{ env.DOCKER_IMAGE }}:${{ env.DOCKER_TAG }}"
 
   deploy-to-render:
     name: Deploy to Render
     runs-on: ubuntu-latest
-    needs: build-and-push  # Se ejecuta después de subir la imagen
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'  # Solo en push a main
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     outputs:
       deploy_status: ${{ steps.check_deploy.outputs.status }}
       deploy_id: ${{ steps.trigger_deploy.outputs.deploy_id }}
@@ -72,85 +73,140 @@ jobs:
         run: |
           echo "🚀 Iniciando deploy en Render..."
           RESPONSE=$(curl -s -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}")
-          DEPLOY_ID=$(echo $RESPONSE | jq -r '.deploy.id')
+          echo "📋 Respuesta de Render:"
+          echo "$RESPONSE" | jq '.' 2>/dev/null || echo "$RESPONSE"
+          
+          DEPLOY_ID=$(echo "$RESPONSE" | jq -r '.id // .deploy.id // empty' 2>/dev/null || echo "unknown")
+          
+          if [ -z "$DEPLOY_ID" ] || [ "$DEPLOY_ID" = "unknown" ]; then
+            echo "⚠️ No se pudo obtener Deploy ID, pero el webhook fue disparado"
+            DEPLOY_ID="webhook-triggered-$(date +%s)"
+          fi
+          
           echo "deploy_id=$DEPLOY_ID" >> $GITHUB_OUTPUT
           echo "✅ Deploy disparado con ID: $DEPLOY_ID"
       
-      - name: Esperar y verificar deploy
+      - name: Esperar inicio del deploy
+        run: |
+          echo "⏳ Esperando 30 segundos para que Render inicie el deploy..."
+          sleep 30
+      
+      - name: Verificar estado del deploy
         id: check_deploy
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          SERVICE_ID: srv-d4us303uibrs73f675mg
+          SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
         run: |
-          echo "⏳ Esperando a que Render complete el deploy..."
+          echo "🔍 Verificando estado del deploy en Render..."
           echo "📍 Service ID: $SERVICE_ID"
           
-          MAX_ATTEMPTS=20  # 20 intentos x 15 segundos = 5 minutos máximo
+          # Validar que el SERVICE_ID exista
+          if [ -z "$SERVICE_ID" ]; then
+            echo "❌ ERROR: RENDER_SERVICE_ID no está configurado en los secrets de GitHub"
+            echo ""
+            echo "📖 Para configurarlo:"
+            echo "   1. Ve a Settings → Secrets and variables → Actions"
+            echo "   2. Agrega RENDER_SERVICE_ID con el valor de tu servicio"
+            echo "   3. Obtén el ID desde: https://dashboard.render.com/web/YOUR_SERVICE"
+            echo ""
+            exit 1
+          fi
+          
+          MAX_ATTEMPTS=40
           ATTEMPT=0
           DEPLOY_STATUS="building"
           
           while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
             ATTEMPT=$((ATTEMPT + 1))
-            echo "🔍 Intento $ATTEMPT/$MAX_ATTEMPTS - Verificando estado del deploy..."
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "🔄 Intento $ATTEMPT/$MAX_ATTEMPTS"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             
-            # Obtener el último deploy del servicio
+            # Obtener último deploy
             DEPLOYS=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
               "https://api.render.com/v1/services/$SERVICE_ID/deploys?limit=1")
             
-            DEPLOY_STATUS=$(echo $DEPLOYS | jq -r '.[0].deploy.status' 2>/dev/null || echo "unknown")
-            DEPLOY_ID=$(echo $DEPLOYS | jq -r '.[0].deploy.id' 2>/dev/null || echo "unknown")
-            
-            echo "� Estado actual: $DEPLOY_STATUS (Deploy ID: $DEPLOY_ID)"
-            
-            # Verificar si el deploy completó (exitoso o fallido)
-            if [ "$DEPLOY_STATUS" = "live" ]; then
-              echo "✅ Deploy completado exitosamente!"
-              echo "status=success" >> $GITHUB_OUTPUT
-              exit 0
-            elif [ "$DEPLOY_STATUS" = "build_failed" ] || [ "$DEPLOY_STATUS" = "update_failed" ] || [ "$DEPLOY_STATUS" = "deactivated" ] || [ "$DEPLOY_STATUS" = "deploy_failed" ]; then
-              echo "❌ Deploy falló con estado: $DEPLOY_STATUS"
-              echo "status=failed" >> $GITHUB_OUTPUT
-              
-              # Obtener logs del deploy fallido
+            # Debug: Mostrar respuesta cruda si hay problemas
+            if [ $ATTEMPT -eq 1 ]; then
+              echo "🔍 Respuesta de API (primer intento):"
+              echo "$DEPLOYS" | jq '.' 2>/dev/null || echo "$DEPLOYS"
               echo ""
-              echo "📋 Obteniendo logs de Render..."
-              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-              echo "🔴 LOGS DE ERROR:"
-              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-              
-              # Intentar obtener logs recientes
-              LOGS=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
-                "https://api.render.com/v1/services/$SERVICE_ID/logs?limit=200" || echo "")
-              
-              # Verificar si obtuvimos logs
-              if [ ! -z "$LOGS" ]; then
-                # Intentar parsear como JSON y extraer mensajes con errores
-                ERROR_LOGS=$(echo "$LOGS" | jq -r '.[] | select(.message | test("Error|error|Failed|failed|Traceback|ImportError|Exception"; "i")) | .message' 2>/dev/null || echo "")
-                
-                if [ ! -z "$ERROR_LOGS" ]; then
-                  echo "$ERROR_LOGS" | tail -n 100
-                else
-                  # Si no hay errores filtrados, mostrar todos los logs recientes
-                  echo "$LOGS" | jq -r '.[].message' 2>/dev/null | tail -n 50 || echo "No se pudieron parsear los logs"
-                fi
-              else
-                echo "⚠️  No se pudieron obtener logs de la API de Render"
-              fi
-              
-              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-              echo "🔗 Ver logs completos en: https://dashboard.render.com/web/$SERVICE_ID/logs"
-              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-              exit 1
-            elif [ "$DEPLOY_STATUS" = "unknown" ]; then
-              echo "⚠️  No se pudo obtener el estado del deploy. Reintentando..."
-            else
-              echo "⏳ Deploy en progreso (estado: $DEPLOY_STATUS)..."
             fi
             
-            sleep 15  # Esperar 15 segundos entre intentos
+            DEPLOY_STATUS=$(echo "$DEPLOYS" | jq -r '.[0].status // empty' 2>/dev/null || echo "unknown")
+            DEPLOY_ID=$(echo "$DEPLOYS" | jq -r '.[0].id // empty' 2>/dev/null || echo "unknown")
+            CREATED_AT=$(echo "$DEPLOYS" | jq -r '.[0].createdAt // empty' 2>/dev/null || echo "unknown")
+            
+            echo "📊 Estado: $DEPLOY_STATUS"
+            echo "🆔 Deploy ID: $DEPLOY_ID"
+            echo "🕐 Iniciado: $CREATED_AT"
+            
+            # Estados de éxito
+            if [ "$DEPLOY_STATUS" = "live" ]; then
+              echo ""
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              echo "✅ DEPLOY EXITOSO"
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              echo "status=success" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            
+            # Estados de fallo
+            if [[ "$DEPLOY_STATUS" =~ ^(build_failed|update_failed|deploy_failed|deactivated|canceled)$ ]]; then
+              echo ""
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              echo "❌ DEPLOY FALLÓ - Estado: $DEPLOY_STATUS"
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              echo "status=failed" >> $GITHUB_OUTPUT
+              
+              echo ""
+              echo "📋 OBTENIENDO LOGS DE RENDER..."
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              
+              # Logs del deploy específico
+              DEPLOY_LOGS=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+                "https://api.render.com/v1/services/$SERVICE_ID/deploys/$DEPLOY_ID/logs" 2>/dev/null || echo "")
+              
+              if [ ! -z "$DEPLOY_LOGS" ]; then
+                echo "🔴 LOGS DEL DEPLOY FALLIDO:"
+                echo "$DEPLOY_LOGS" | jq -r '.[] | "\(.timestamp // .createdAt // "N/A") - \(.message // .text // .)"' 2>/dev/null | grep -i "error\|fail\|exception\|traceback" | tail -n 50 || echo "$DEPLOY_LOGS" | tail -n 50
+              fi
+              
+              # Logs recientes del servicio
+              SERVICE_LOGS=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+                "https://api.render.com/v1/services/$SERVICE_ID/logs?limit=100" 2>/dev/null || echo "")
+              
+              if [ ! -z "$SERVICE_LOGS" ]; then
+                echo ""
+                echo "🔍 LOGS RECIENTES DEL SERVICIO:"
+                echo "$SERVICE_LOGS" | jq -r '.[] | "\(.timestamp // .createdAt // "N/A") - \(.message // .text // .)"' 2>/dev/null | tail -n 30 || echo "$SERVICE_LOGS" | tail -n 30
+              fi
+              
+              echo ""
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              echo "🔗 Ver logs completos:"
+              echo "   Dashboard: https://dashboard.render.com/web/$SERVICE_ID"
+              echo "   Deploy: https://dashboard.render.com/web/$SERVICE_ID/deploys/$DEPLOY_ID"
+              echo "   Logs: https://dashboard.render.com/web/$SERVICE_ID/logs"
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              exit 1
+            fi
+            
+            # En progreso
+            if [ "$DEPLOY_STATUS" = "unknown" ]; then
+              echo "⚠️ Estado desconocido. Verificando API..."
+            else
+              echo "⏳ Deploy en progreso..."
+            fi
+            
+            sleep 15
           done
           
-          echo "⏰ Timeout: El deploy tomó más de 5 minutos"
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "⏰ TIMEOUT: El deploy tomó más de 10 minutos"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "status=timeout" >> $GITHUB_OUTPUT
           exit 1
       
@@ -158,24 +214,39 @@ jobs:
         if: steps.check_deploy.outputs.status == 'success'
         run: |
           echo "🔍 Verificando que la aplicación responda correctamente..."
-          sleep 5  # Dar tiempo a que la app inicie completamente
+          sleep 10
           
           HEALTH_URL="https://epagal-backend-routing-latest.onrender.com/health"
-          RESPONSE=$(curl -s -w "\n%{http_code}" "$HEALTH_URL")
-          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-          BODY=$(echo "$RESPONSE" | head -n-1)
+          echo "📍 Consultando: $HEALTH_URL"
           
-          echo "📊 HTTP Status: $HTTP_CODE"
-          echo "📦 Response:"
-          echo "$BODY" | jq '.' 2>/dev/null || echo "$BODY"
+          for i in {1..5}; do
+            echo ""
+            echo "Intento $i/5..."
+            RESPONSE=$(curl -s -w "\n%{http_code}" "$HEALTH_URL" 2>&1)
+            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+            BODY=$(echo "$RESPONSE" | head -n-1)
+            
+            echo "📊 HTTP Status: $HTTP_CODE"
+            
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "📦 Response:"
+              echo "$BODY" | jq '.' 2>/dev/null || echo "$BODY"
+              echo ""
+              echo "✅ Aplicación respondiendo correctamente!"
+              exit 0
+            else
+              echo "⚠️ Aplicación responde con código $HTTP_CODE"
+              
+              if [ $i -lt 5 ]; then
+                echo "Reintentando en 10 segundos..."
+                sleep 10
+              fi
+            fi
+          done
           
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo "✅ Aplicación respondiendo correctamente!"
-          else
-            echo "⚠️  Aplicación responde con código $HTTP_CODE"
-            exit 1
-          fi
-
+          echo ""
+          echo "❌ La aplicación no respondió correctamente"
+          exit 1
 
   notify:
     name: Notificación de Deploy
@@ -186,24 +257,29 @@ jobs:
     steps:
       - name: Resumen del Deploy
         run: |
-          echo "📊 Resumen del Pipeline:"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "Build Docker: ${{ needs.build-and-push.result }}"
-          echo "Deploy Render: ${{ needs.deploy-to-render.result }}"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📊 RESUMEN DEL PIPELINE"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🐳 Build Docker: ${{ needs.build-and-push.result }}"
+          echo "🚀 Deploy Render: ${{ needs.deploy-to-render.result }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
           
           if [ "${{ needs.build-and-push.result }}" == "success" ] && [ "${{ needs.deploy-to-render.result }}" == "success" ]; then
-            echo "✅ Pipeline completado exitosamente"
+            echo "✅ PIPELINE COMPLETADO EXITOSAMENTE"
+            echo ""
             echo "🎉 La aplicación está actualizada en Render"
             echo ""
-            echo "🌐 URL de la aplicación:"
-            echo "   https://epagal-backend-routing-latest.onrender.com"
-            echo ""
-            echo "🔍 Verificar health check:"
-            echo "   https://epagal-backend-routing-latest.onrender.com/health"
-            echo ""
-            echo "📚 Documentación API:"
-            echo "   https://epagal-backend-routing-latest.onrender.com/docs"
+            echo "🔗 Enlaces útiles:"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "🌐 URL: https://epagal-backend-routing-latest.onrender.com"
+            echo "💚 Health: https://epagal-backend-routing-latest.onrender.com/health"
+            echo "📚 API Docs: https://epagal-backend-routing-latest.onrender.com/docs"
+            echo "🐳 Docker Hub: https://hub.docker.com/r/${{ env.DOCKER_IMAGE }}"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           else
-            echo "❌ El pipeline falló. Revisa los logs arriba."
+            echo "❌ EL PIPELINE FALLÓ"
+            echo ""
+            echo "🔍 Revisa los logs anteriores para más detalles"
           fi
