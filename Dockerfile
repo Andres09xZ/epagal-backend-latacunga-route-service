@@ -20,11 +20,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copiar el código de la aplicación
 COPY . .
 
-# Exponer el puerto
-EXPOSE 8081
+# Exponer un puerto por defecto (Render asigna PORT dinámico)
+EXPOSE 8080
 
 # Variable de entorno para Python
 ENV PYTHONUNBUFFERED=1
 
-# Comando para ejecutar la aplicación
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8081"]
+# Comando para ejecutar la aplicación respetando PORT de Render
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
