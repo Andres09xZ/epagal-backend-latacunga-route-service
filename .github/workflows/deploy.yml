@@ -77,33 +77,11 @@ jobs:
           
           if [ -z "$SERVICE_ID" ]; then
             echo "ERROR: RENDER_SERVICE_ID is not configured"
-            echo ""
-            echo "Configuration steps:"
-            echo "  1. Go to your service at https://dashboard.render.com"
-            echo "  2. URL format: https://dashboard.render.com/web/srv-XXXXX"
-            echo "  3. Copy the 'srv-XXXXX' (that is your SERVICE_ID)"
-            echo "  4. Go to Settings > Secrets > Actions in GitHub"
-            echo "  5. Add new secret:"
-            echo "     - Name: RENDER_SERVICE_ID"
-            echo "     - Value: srv-XXXXX (your ID)"
-            echo ""
             exit 1
           fi
           
           if [ -z "$RENDER_API_KEY" ]; then
             echo "ERROR: RENDER_API_KEY is not configured"
-            echo ""
-            echo "Configuration steps:"
-            echo "  1. Go to https://dashboard.render.com/u/settings"
-            echo "  2. Scroll to 'API Keys'"
-            echo "  3. Click 'Create API Key'"
-            echo "  4. Name it (e.g., GitHub Actions)"
-            echo "  5. Copy the key (starts with 'rnd_')"
-            echo "  6. Go to Settings > Secrets > Actions in GitHub"
-            echo "  7. Add new secret:"
-            echo "     - Name: RENDER_API_KEY"
-            echo "     - Value: rnd_XXXXX (your key)"
-            echo ""
             exit 1
           fi
           
@@ -122,28 +100,8 @@ jobs:
           
           if [ "$HTTP_CODE" = "200" ]; then
             echo "Connection successful with Render API"
-            echo ""
-            echo "Service information:"
-            echo "$RESPONSE" | jq '{name: .name, type: .type, region: .region, branch: .autoDeploy.branch}' 2>/dev/null || echo "$RESPONSE"
-          elif [ "$HTTP_CODE" = "401" ]; then
-            echo "ERROR: Invalid or expired API Key"
-            echo ""
-            echo "Solution:"
-            echo "  1. Generate new API Key at https://dashboard.render.com/u/settings"
-            echo "  2. Update RENDER_API_KEY secret in GitHub"
-            exit 1
-          elif [ "$HTTP_CODE" = "404" ]; then
-            echo "ERROR: Service ID not found"
-            echo ""
-            echo "Solution:"
-            echo "  1. Verify SERVICE_ID is correct"
-            echo "  2. Format should be: srv-XXXXXXXXXXXXX"
-            echo "  3. Find it in Render dashboard URL"
-            exit 1
           else
-            echo "ERROR: Unexpected API response"
-            echo "HTTP Status: $HTTP_CODE"
-            echo "Response: $RESPONSE"
+            echo "ERROR: API connection failed"
             exit 1
           fi
       
@@ -194,10 +152,12 @@ jobs:
           
           if [ "$DEPLOY_COUNT" -gt 0 ]; then
             for i in $(seq 0 $((DEPLOY_COUNT - 1))); do
-              DEPLOY_ID=$(echo "$DEPLOYS" | jq -r ".[$i].id // \"unknown\"" 2>/dev/null)
-              DEPLOY_STATUS_API=$(echo "$DEPLOYS" | jq -r ".[$i].status // \"unknown\"" 2>/dev/null)
-              CREATED_AT=$(echo "$DEPLOYS" | jq -r ".[$i].createdAt // \"unknown\"" 2>/dev/null)
-              FINISHED_AT=$(echo "$DEPLOYS" | jq -r ".[$i].finishedAt // \"N/A\"" 2>/dev/null)
+              DEPLOY_ID=$(echo "$DEPLOYS" | jq -r ".[$i].deploy.id // \"unknown\"" 2>/dev/null)
+              DEPLOY_STATUS_API=$(echo "$DEPLOYS" | jq -r ".[$i].deploy.status // \"unknown\"" 2>/dev/null)
+              CREATED_AT=$(echo "$DEPLOYS" | jq -r ".[$i].deploy.createdAt // \"unknown\"" 2>/dev/null)
+              FINISHED_AT=$(echo "$DEPLOYS" | jq -r ".[$i].deploy.finishedAt // \"N/A\"" 2>/dev/null)
+              IMAGE_REF=$(echo "$DEPLOYS" | jq -r ".[$i].deploy.image.ref // \"N/A\"" 2>/dev/null)
+              IMAGE_SHA=$(echo "$DEPLOYS" | jq -r ".[$i].deploy.image.sha // \"N/A\"" 2>/dev/null)
               
               echo "============================================"
               echo "DEPLOY #$((i + 1)) INFORMATION"
@@ -206,90 +166,103 @@ jobs:
               echo "  Status: $DEPLOY_STATUS_API"
               echo "  Started: $CREATED_AT"
               echo "  Finished: $FINISHED_AT"
+              echo "  Image: $IMAGE_REF"
+              echo "  Image SHA: $IMAGE_SHA"
               echo ""
               
-              if [ "$DEPLOY_ID" != "unknown" ]; then
+              if [ "$DEPLOY_ID" != "unknown" ] && [ "$DEPLOY_ID" != "null" ]; then
                 echo "--------------------------------------------"
-                echo "FETCHING COMPLETE LOGS FOR DEPLOY: $DEPLOY_ID"
+                echo "FETCHING LOGS FOR DEPLOY: $DEPLOY_ID"
                 echo "--------------------------------------------"
                 echo ""
                 
-                LOGS=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+                LOGS_RESPONSE=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer $RENDER_API_KEY" \
                   "https://api.render.com/v1/services/$SERVICE_ID/deploys/$DEPLOY_ID/logs")
                 
-                if [ ! -z "$LOGS" ] && [ "$LOGS" != "null" ]; then
-                  LOG_COUNT=$(echo "$LOGS" | jq 'length' 2>/dev/null || echo "0")
-                  echo "Total log entries: $LOG_COUNT"
-                  echo ""
-                  
-                  if [ "$LOG_COUNT" -gt 0 ]; then
-                    echo "COMPLETE DEPLOYMENT LOGS:"
-                    echo "============================================"
-                    echo "$LOGS" | jq -r '.[] | "\(.timestamp // .createdAt // "N/A") [\(.level // "INFO")] \(.message // .text // .)"' 2>/dev/null || echo "$LOGS"
-                    echo "============================================"
+                HTTP_CODE=$(echo "$LOGS_RESPONSE" | tail -n1)
+                LOGS=$(echo "$LOGS_RESPONSE" | head -n-1)
+                
+                echo "Logs API HTTP Status: $HTTP_CODE"
+                
+                if [ "$HTTP_CODE" = "200" ]; then
+                  if [ ! -z "$LOGS" ] && [ "$LOGS" != "null" ] && [ "$LOGS" != "[]" ]; then
+                    LOG_COUNT=$(echo "$LOGS" | jq 'length' 2>/dev/null || echo "0")
+                    echo "Total log entries: $LOG_COUNT"
                     echo ""
                     
-                    echo "FILTERING CRITICAL MESSAGES (errors, failures, exceptions):"
-                    echo "============================================"
-                    ERROR_LOGS=$(echo "$LOGS" | jq -r '.[] | select(.message // .text | test("error|ERROR|Error|exception|Exception|EXCEPTION|fail|FAIL|Fail|traceback|Traceback|TRACEBACK"; "i")) | "\(.timestamp // .createdAt // "N/A") - \(.message // .text // .)"' 2>/dev/null)
-                    
-                    if [ ! -z "$ERROR_LOGS" ]; then
-                      echo "$ERROR_LOGS"
+                    if [ "$LOG_COUNT" -gt 0 ]; then
+                      echo "COMPLETE DEPLOYMENT LOGS:"
+                      echo "============================================"
+                      echo "$LOGS" | jq -r '.[] | "\(.timestamp // .createdAt // "N/A") [\(.level // "INFO")] \(.message // .text // .)"' 2>/dev/null || echo "$LOGS"
+                      echo "============================================"
+                      echo ""
+                      
+                      echo "FILTERING CRITICAL MESSAGES:"
+                      echo "============================================"
+                      ERROR_LOGS=$(echo "$LOGS" | jq -r '.[] | select(.message // .text | test("error|ERROR|Error|exception|Exception|EXCEPTION|fail|FAIL|Fail|traceback|Traceback|TRACEBACK|ModuleNotFoundError|ImportError|SyntaxError"; "i")) | "\(.timestamp // .createdAt // "N/A") - \(.message // .text // .)"' 2>/dev/null)
+                      
+                      if [ ! -z "$ERROR_LOGS" ]; then
+                        echo "$ERROR_LOGS"
+                      else
+                        echo "No critical error messages found in logs"
+                      fi
+                      echo "============================================"
+                      echo ""
+                      
+                      if [[ "$DEPLOY_STATUS_API" =~ ^(build_failed|update_failed|deploy_failed)$ ]]; then
+                        echo "LAST 100 LOG ENTRIES (most recent):"
+                        echo "============================================"
+                        echo "$LOGS" | jq -r '.[-100:] | .[] | "\(.timestamp // .createdAt // "N/A") - \(.message // .text // .)"' 2>/dev/null || echo "$LOGS" | tail -n 100
+                        echo "============================================"
+                      fi
                     else
-                      echo "No critical error messages found in logs"
-                    fi
-                    echo "============================================"
-                    echo ""
-                    
-                    if [[ "$DEPLOY_STATUS_API" =~ ^(build_failed|update_failed|deploy_failed)$ ]]; then
-                      echo "LAST 50 LOG ENTRIES (most recent):"
-                      echo "============================================"
-                      echo "$LOGS" | jq -r '.[-50:] | .[] | "\(.timestamp // .createdAt // "N/A") - \(.message // .text // .)"' 2>/dev/null || echo "$LOGS" | tail -n 50
-                      echo "============================================"
+                      echo "No log entries available"
                     fi
                   else
-                    echo "No log entries available"
+                    echo "No logs returned from API (empty or null response)"
                   fi
+                elif [ "$HTTP_CODE" = "404" ]; then
+                  echo "Deploy logs not found (404). Deploy may be too old or not yet started."
+                elif [ "$HTTP_CODE" = "401" ]; then
+                  echo "Authentication error (401). Check API key permissions."
                 else
-                  echo "No logs available from Render API for this deploy"
-                  echo "This might indicate:"
-                  echo "  - Deploy is still initializing"
-                  echo "  - Deploy was canceled before logging started"
-                  echo "  - API returned empty response"
+                  echo "Unexpected API response: HTTP $HTTP_CODE"
+                  echo "Response: $LOGS"
                 fi
+              else
+                echo "Skipping log fetch - invalid deploy ID"
               fi
               echo ""
             done
           else
             echo "No deploys found for this service"
-            echo "This might indicate:"
-            echo "  - Service was just created"
-            echo "  - Deploy hasn't started yet"
-            echo "  - API connection issue"
           fi
           
           echo ""
           echo "============================================"
-          echo "FETCHING SERVICE RUNTIME LOGS (if available)"
+          echo "ANALYSIS SUMMARY"
           echo "============================================"
-          echo ""
           
-          SERVICE_LOGS=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
-            "https://api.render.com/v1/services/$SERVICE_ID/logs?limit=100")
-          
-          if [ ! -z "$SERVICE_LOGS" ] && [ "$SERVICE_LOGS" != "null" ]; then
-            SERVICE_LOG_COUNT=$(echo "$SERVICE_LOGS" | jq 'length' 2>/dev/null || echo "0")
-            echo "Service log entries: $SERVICE_LOG_COUNT"
+          if [ "$DEPLOY_COUNT" -gt 0 ]; then
+            FIRST_DEPLOY_STATUS=$(echo "$DEPLOYS" | jq -r ".[0].deploy.status // \"unknown\"" 2>/dev/null)
             
-            if [ "$SERVICE_LOG_COUNT" -gt 0 ]; then
+            if [ "$FIRST_DEPLOY_STATUS" = "update_failed" ]; then
+              echo "Latest deploy status: update_failed"
               echo ""
-              echo "RECENT SERVICE LOGS:"
-              echo "--------------------------------------------"
-              echo "$SERVICE_LOGS" | jq -r '.[] | "\(.timestamp // .createdAt // "N/A") - \(.message // .text // .)"' 2>/dev/null || echo "$SERVICE_LOGS"
-              echo "--------------------------------------------"
+              echo "Common causes for update_failed:"
+              echo "  1. Application fails to start (check startup logs)"
+              echo "  2. Health check endpoint not responding"
+              echo "  3. Port configuration mismatch"
+              echo "  4. Missing environment variables"
+              echo "  5. Database connection issues"
+              echo "  6. Python/dependency errors"
+              echo ""
+              echo "Recommended actions:"
+              echo "  1. Review the complete logs above"
+              echo "  2. Check if application starts locally with same Docker image"
+              echo "  3. Verify environment variables in Render dashboard"
+              echo "  4. Ensure health check endpoint (/health) is accessible"
             fi
-          else
-            echo "No service runtime logs available"
           fi
           
           echo ""
