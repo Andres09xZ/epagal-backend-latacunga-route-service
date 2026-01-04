@@ -264,9 +264,55 @@ jobs:
                 if [ "$HEALTH_HTTP_CODE" = "200" ]; then
                   echo "✓ Service is healthy!"
                   echo "$HEALTH_BODY"
+                  
+                  # If health check passes, test critical endpoints
+                  echo ""
+                  echo "→ Testing critical API endpoints..."
+                  echo ""
+                  
+                  # Test 1: GET incidencias
+                  echo "Test 1: GET /api/incidencias/"
+                  INCIDENCIAS_RESPONSE=$(curl -s -w "\n%{http_code}" "$SERVICE_URL/api/incidencias/" 2>/dev/null || echo -e "\n000")
+                  INCIDENCIAS_CODE=$(echo "$INCIDENCIAS_RESPONSE" | tail -n1)
+                  echo "  Response code: $INCIDENCIAS_CODE"
+                  if [ "$INCIDENCIAS_CODE" = "200" ]; then
+                    echo "  ✓ Endpoint working correctly"
+                  else
+                    echo "  ✗ Endpoint failed"
+                    echo "  Response: $(echo "$INCIDENCIAS_RESPONSE" | head -n-1 | head -c 500)"
+                  fi
+                  echo ""
+                  
+                  # Test 2: GET docs (FastAPI auto-documentation)
+                  echo "Test 2: GET /docs"
+                  DOCS_RESPONSE=$(curl -s -w "\n%{http_code}" "$SERVICE_URL/docs" 2>/dev/null || echo -e "\n000")
+                  DOCS_CODE=$(echo "$DOCS_RESPONSE" | tail -n1)
+                  echo "  Response code: $DOCS_CODE"
+                  if [ "$DOCS_CODE" = "200" ]; then
+                    echo "  ✓ API documentation accessible"
+                  else
+                    echo "  ✗ Documentation not accessible"
+                  fi
+                  echo ""
+                  
+                  # Test 3: Database connectivity through API
+                  echo "Test 3: Database connectivity check"
+                  DB_CHECK=$(curl -s "$SERVICE_URL/api/incidencias/" | jq 'type' 2>/dev/null || echo "error")
+                  if [ "$DB_CHECK" = "array" ] || [ "$DB_CHECK" = "object" ]; then
+                    echo "  ✓ Database connection working (API returned valid JSON)"
+                  else
+                    echo "  ✗ Database might have issues (unexpected response format)"
+                  fi
+                  
                 else
                   echo "✗ Service health check failed"
                   echo "$HEALTH_BODY"
+                  echo ""
+                  echo "Possible causes:"
+                  echo "  - Application failed to start"
+                  echo "  - Python module import errors"
+                  echo "  - Database connection issues"
+                  echo "  - Port binding problems"
                 fi
               fi
             fi
@@ -321,12 +367,48 @@ jobs:
           echo ""
           
           echo "============================================"
-          echo "DIAGNOSTIC COMPLETE"
+          echo "📊 DEPLOYMENT SUMMARY"
           echo "============================================"
           echo ""
-          echo "If logs are not showing above, the Render API may have restrictions."
-          echo "You can view complete logs at:"
-          echo "  https://dashboard.render.com/web/$SERVICE_ID/logs"
+          echo "Service Information:"
+          echo "  Name: epagal-backend-routing:latest"
+          echo "  Status: $LATEST_DEPLOY_STATUS"
+          echo "  Region: oregon"
+          echo "  Plan: free"
+          echo "  URL: $SERVICE_URL"
+          echo ""
+          echo "Deploy Information:"
+          echo "  Deploy ID: $LATEST_DEPLOY_ID"
+          echo "  Started: $LATEST_DEPLOY_CREATED"
+          echo "  Finished: $LATEST_DEPLOY_FINISHED"
+          echo "  Image: $LATEST_DEPLOY_IMAGE"
+          echo ""
+          
+          if [ "$HEALTH_HTTP_CODE" = "200" ]; then
+            echo "✅ SERVICE STATUS: HEALTHY AND OPERATIONAL"
+            echo ""
+            echo "Your API is accessible at:"
+            echo "  🌐 Base URL: $SERVICE_URL"
+            echo "  📚 Docs: $SERVICE_URL/docs"
+            echo "  💚 Health: $SERVICE_URL/health"
+            echo "  📝 Incidencias: $SERVICE_URL/api/incidencias/"
+          else
+            echo "❌ SERVICE STATUS: UNHEALTHY"
+            echo ""
+            echo "The service deployed but is not responding correctly."
+            echo "This usually means there's a runtime error."
+            echo ""
+            echo "🔍 To debug, check the Render dashboard logs:"
+            echo "  https://dashboard.render.com/web/$SERVICE_ID/logs"
+            echo ""
+            echo "Common issues to look for:"
+            echo "  • ModuleNotFoundError - Missing Python dependencies"
+            echo "  • ImportError - Package compatibility issues"  
+            echo "  • Database connection errors"
+            echo "  • Environment variable issues"
+          fi
+          echo ""
+          echo "============================================"
           echo ""
           
           if [ "$DEPLOY_STATUS" != "success" ]; then
