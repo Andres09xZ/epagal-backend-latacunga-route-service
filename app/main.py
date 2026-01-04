@@ -5,10 +5,12 @@ ENDPOINTS: /api/reportes y /api/operadores activados
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 import os
 
 from app.database import engine, Base
-from app.routers import incidencias, rutas, auth, conductores, tasks, notifications, reports, reportes, operadores
+from app.routers import incidencias, rutas, auth, conductores, tasks, notifications, reports, reportes, operadores, horarios
 
 # Crear tablas
 Base.metadata.create_all(bind=engine)
@@ -21,42 +23,18 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# Configuración CORS - Orígenes permitidos (hardcoded para producción)
+# Configuración CORS - MÁS PERMISIVA para desarrollo
+# En producción deberías restringir esto
 allowed_origins = [
-    "https://epagal-backend-routing-latest.onrender.com",  # Backend en producción
-    "https://tesis-1-z78t.onrender.com",  # Frontend en producción (si existe)
-    "http://localhost:3000",               # React/Vue local
-    "http://localhost:8000",               # Dashboard local
-    "http://localhost:8080",               # Desarrollo local
-    "http://localhost:5173",               # Vite local
-    "http://127.0.0.1:3000",              # Localhost alternativo
-    "http://127.0.0.1:8000",              # Dashboard alternativo
-    "http://127.0.0.1:8080",              # Localhost alternativo
-    "capacitor://localhost",               # Capacitor iOS/Android
-    "ionic://localhost",                   # Ionic
-    "http://localhost",                    # Genérico local
-    "null",                                # Archivos HTML locales (file://)
-    "http://10.52.239.59:7000",           # App operador Expo/React Native
-    "http://10.52.239.59:9000",           # Acceso directo desde la red local
-    "http://10.52.239.59:8000",           # Dashboard desde la red local
-    "http://10.52.239.59",                 # IP base sin puerto
+    "*",  # Permitir todos los orígenes (solo para desarrollo)
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    allow_origins=["*"],  # Permitir todos los orígenes
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=[
-        "Authorization",
-        "Content-Type",
-        "Accept",
-        "Origin",
-        "User-Agent",
-        "DNT",
-        "Cache-Control",
-        "X-Requested-With"
-    ],
+    allow_methods=["*"],  # Permitir todos los métodos
+    allow_headers=["*"],  # Permitir todos los headers
     expose_headers=["Content-Length", "X-Total-Count", "Content-Disposition"],
     max_age=600,  # Cache preflight requests por 10 minutos
 )
@@ -71,7 +49,12 @@ app.include_router(notifications.router, prefix="/api")
 app.include_router(reports.router, prefix="/api")
 app.include_router(reportes.router, prefix="/api")
 app.include_router(operadores.router, prefix="/api")
+app.include_router(horarios.router, prefix="/api")
 
+# Montar archivos estáticos del dashboard
+dashboard_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dashboard")
+if os.path.exists(dashboard_path):
+    app.mount("/dashboard", StaticFiles(directory=dashboard_path, html=True), name="dashboard")
 
 @app.get("/")
 def root():
@@ -84,10 +67,12 @@ def root():
             "Rutas optimizadas con OSRM",
             "Autenticación JWT",
             "Gestión de conductores",
-            "Asignación automática"
+            "Asignación automática",
+            "Sistema de horarios de recolección"
         ],
         "docs": "/docs",
-        "redoc": "/redoc"
+        "redoc": "/redoc",
+        "dashboard": "/dashboard/"
     }
 
 

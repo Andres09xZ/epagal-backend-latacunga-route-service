@@ -1,5 +1,5 @@
 // Configuración
-const API_URL = 'http://localhost:9000';
+const API_URL = 'http://localhost:9000';  // Backend FastAPI
 let authToken = null;
 let currentUser = null;
 let selectedIncidenciaId = null;
@@ -841,6 +841,12 @@ async function loadStats() {
         });
         const rutas = await rutasResponse.json();
         
+        // Cargar umbrales
+        const umbralesResponse = await fetch(`${API_URL}/api/incidencias/umbrales`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        const umbrales = await umbralesResponse.json();
+        
         // Calcular estadísticas
         const stats = {
             total_incidencias: incidencias.length,
@@ -885,6 +891,64 @@ async function loadStats() {
             <div class="stat-card success">
                 <h3>Rutas Completadas</h3>
                 <div class="stat-value">${stats.rutas_completadas}</div>
+            </div>
+            
+            <!-- Sección de Umbrales -->
+            <div class="umbral-section">
+                <h2>⚖️ Umbrales de Gravedad por Zona</h2>
+                <p class="umbral-description">Umbral configurado: <strong>${umbrales.umbral}</strong> puntos</p>
+                
+                <div class="umbral-cards">
+                    <!-- Zona Oriental -->
+                    <div class="umbral-card ${umbrales.oriental.supera_umbral ? 'supera' : ''}">
+                        <h3>🌅 Zona Oriental</h3>
+                        <div class="umbral-progress">
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${Math.min(umbrales.oriental.porcentaje, 100)}%"></div>
+                            </div>
+                            <div class="progress-label">${umbrales.oriental.porcentaje}%</div>
+                        </div>
+                        <div class="umbral-stats">
+                            <div class="umbral-stat">
+                                <span class="umbral-label">Gravedad Acumulada:</span>
+                                <span class="umbral-value">${umbrales.oriental.gravedad_acumulada} / ${umbrales.umbral}</span>
+                            </div>
+                            <div class="umbral-stat">
+                                <span class="umbral-label">Incidencias Validadas:</span>
+                                <span class="umbral-value">${umbrales.oriental.incidencias_validadas}</span>
+                            </div>
+                            <div class="umbral-stat ${umbrales.oriental.supera_umbral ? 'success' : 'warning'}">
+                                <span class="umbral-label">${umbrales.oriental.supera_umbral ? '✅ Supera umbral' : '⏳ Faltan'}:</span>
+                                <span class="umbral-value">${umbrales.oriental.supera_umbral ? 'Ruta disponible' : umbrales.oriental.falta + ' puntos'}</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Zona Occidental -->
+                    <div class="umbral-card ${umbrales.occidental.supera_umbral ? 'supera' : ''}">
+                        <h3>🌄 Zona Occidental</h3>
+                        <div class="umbral-progress">
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${Math.min(umbrales.occidental.porcentaje, 100)}%"></div>
+                            </div>
+                            <div class="progress-label">${umbrales.occidental.porcentaje}%</div>
+                        </div>
+                        <div class="umbral-stats">
+                            <div class="umbral-stat">
+                                <span class="umbral-label">Gravedad Acumulada:</span>
+                                <span class="umbral-value">${umbrales.occidental.gravedad_acumulada} / ${umbrales.umbral}</span>
+                            </div>
+                            <div class="umbral-stat">
+                                <span class="umbral-label">Incidencias Validadas:</span>
+                                <span class="umbral-value">${umbrales.occidental.incidencias_validadas}</span>
+                            </div>
+                            <div class="umbral-stat ${umbrales.occidental.supera_umbral ? 'success' : 'warning'}">
+                                <span class="umbral-label">${umbrales.occidental.supera_umbral ? '✅ Supera umbral' : '⏳ Faltan'}:</span>
+                                <span class="umbral-value">${umbrales.occidental.supera_umbral ? 'Ruta disponible' : umbrales.occidental.falta + ' puntos'}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         `;
         
@@ -967,4 +1031,691 @@ window.addEventListener('click', (e) => {
         e.target.classList.remove('active');
     }
 });
+
+// ==================== HORARIOS SYSTEM ====================
+
+// Función para cambiar entre sub-tabs
+function switchSubTab(tabName) {
+    // Actualizar botones
+    document.querySelectorAll('.sub-tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    event.target.classList.add('active');
+    
+    // Actualizar contenido
+    document.querySelectorAll('.sub-tab-content').forEach(content => {
+        content.classList.remove('active');
+    });
+    document.getElementById(tabName).classList.add('active');
+    
+    // Cargar datos según el tab
+    switch(tabName) {
+        case 'horarios-list':
+            loadHorarios();
+            break;
+        case 'ejecuciones':
+            loadEjecucionesHoy();
+            break;
+    }
+}
+
+// Event listeners para sub-tabs
+document.querySelectorAll('.sub-tab-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+        const subtab = e.target.dataset.subtab;
+        switchSubTab(subtab);
+    });
+});
+
+// ==================== SECTORES ====================
+
+// Cargar sectores
+async function loadSectores() {
+    if (!authToken) return;
+    
+    showLoading();
+    
+    try {
+        const response = await fetch(`${API_URL}/api/horarios/sectores`, {
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            }
+        });
+        
+        if (!response.ok) throw new Error('Error al cargar sectores');
+        
+        const sectores = await response.json();
+        displaySectores(sectores);
+    } catch (error) {
+        console.error('Error:', error);
+        showMessage('Error al cargar sectores', 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+// Mostrar sectores
+function displaySectores(sectores) {
+    const grid = document.getElementById('sectoresGrid');
+    
+    if (sectores.length === 0) {
+        grid.innerHTML = '<div class="empty-day">No hay sectores registrados</div>';
+        return;
+    }
+    
+    grid.innerHTML = sectores.map(sector => {
+        // Manejar coordenadas de manera segura
+        let coordenadasInfo = 'N/A';
+        try {
+            if (sector.poligono && sector.poligono.coordinates && sector.poligono.coordinates[0]) {
+                coordenadasInfo = `${sector.poligono.coordinates[0].length} puntos`;
+            }
+        } catch (e) {
+            coordenadasInfo = 'Datos no disponibles';
+        }
+        
+        return `
+        <div class="sector-card">
+            <div class="sector-header">
+                <div class="sector-name">${sector.nombre}</div>
+                <span class="sector-badge ${sector.zona}">${sector.zona.toUpperCase()}</span>
+            </div>
+            <div class="sector-info">
+                <div class="sector-info-item">
+                    🗺️ <strong>Descripción:</strong> ${sector.descripcion || 'Sin descripción'}
+                </div>
+                <div class="sector-info-item">
+                    📊 <strong>Población:</strong> ${sector.poblacion_aproximada || 'N/A'} habitantes
+                </div>
+                <div class="sector-info-item">
+                    📍 <strong>Coordenadas:</strong> ${coordenadasInfo}
+                </div>
+            </div>
+            <div class="sector-actions">
+                <button class="btn-primary btn-sm" onclick="verSectorMapa(${sector.id})">
+                    🗺️ Ver en Mapa
+                </button>
+                <button class="btn-secondary btn-sm" onclick="editSector(${sector.id})">
+                    ✏️ Editar
+                </button>
+            </div>
+        </div>
+        `;
+    }).join('');
+}
+
+// Crear nuevo sector
+async function createSector() {
+    const errorDiv = document.getElementById('createSectorError');
+    errorDiv.textContent = '';
+    errorDiv.classList.remove('active');
+    
+    try {
+        const nombre = document.getElementById('sectorNombre').value.trim();
+        const descripcion = document.getElementById('sectorDescripcion').value.trim();
+        const zona = document.getElementById('sectorZona').value;
+        const poblacion = document.getElementById('sectorPoblacion').value;
+        const poligonoText = document.getElementById('sectorPoligono').value.trim();
+        
+        if (!nombre || !zona || !poligonoText) {
+            errorDiv.textContent = 'Todos los campos obligatorios deben estar completos';
+            errorDiv.classList.add('active');
+            return;
+        }
+        
+        // Parsear y validar GeoJSON
+        let coordinates;
+        try {
+            coordinates = JSON.parse(poligonoText);
+            if (!Array.isArray(coordinates) || coordinates.length < 3) {
+                throw new Error('Debe tener al menos 3 puntos');
+            }
+        } catch (e) {
+            errorDiv.textContent = 'Formato de coordenadas inválido. Debe ser un array JSON de [longitud, latitud]';
+            errorDiv.classList.add('active');
+            return;
+        }
+        
+        const sectorData = {
+            nombre,
+            descripcion,
+            zona,
+            poblacion_aproximada: poblacion ? parseInt(poblacion) : null,
+            poligono: {
+                type: "Polygon",
+                coordinates: [coordinates]
+            }
+        };
+        
+        showLoading();
+        
+        const response = await fetch(`${API_URL}/api/horarios/sectores`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(sectorData)
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Error al crear sector');
+        }
+        
+        showMessage('Sector creado exitosamente', 'success');
+        document.getElementById('createSectorModal').classList.remove('active');
+        document.getElementById('createSectorForm').reset();
+        loadSectores();
+        
+    } catch (error) {
+        console.error('Error:', error);
+        errorDiv.textContent = error.message;
+        errorDiv.classList.add('active');
+    } finally {
+        hideLoading();
+    }
+}
+
+// ==================== HORARIOS ====================
+
+// Cargar rutas para dropdown
+async function loadRutasDropdown() {
+    if (!authToken) return;
+    
+    try {
+        const response = await fetch(`${API_URL}/api/rutas`, {
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            }
+        });
+        
+        if (!response.ok) throw new Error('Error al cargar rutas');
+        
+        const rutas = await response.json();
+        const select = document.getElementById('horarioRuta');
+        
+        select.innerHTML = '<option value="">Seleccione una ruta...</option>' +
+            rutas.map(ruta => 
+                `<option value="${ruta.id}">
+                    Ruta #${ruta.id} - ${ruta.zona.toUpperCase()} - ${ruta.camiones_usados} camión(es) - ${ruta.estado}
+                </option>`
+            ).join('');
+            
+    } catch (error) {
+        console.error('Error:', error);
+        showMessage('Error al cargar rutas', 'error');
+    }
+}
+
+// Cargar horarios
+async function loadHorarios() {
+    if (!authToken) return;
+    
+    showLoading();
+    
+    try {
+        const response = await fetch(`${API_URL}/api/horarios?incluir_inactivos=true`, {
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            }
+        });
+        
+        if (!response.ok) throw new Error('Error al cargar horarios');
+        
+        const horarios = await response.json();
+        displayHorarios(horarios);
+    } catch (error) {
+        console.error('Error:', error);
+        showMessage('Error al cargar horarios', 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+// Mostrar horarios
+function displayHorarios(horarios) {
+    const container = document.getElementById('horariosTable');
+    
+    if (horarios.length === 0) {
+        container.innerHTML = '<div class="empty-day">No hay horarios programados. Crea uno usando las rutas generadas.</div>';
+        return;
+    }
+    
+    container.innerHTML = horarios.map(horario => {
+        const diasArray = horario.dias_semana.split(',');
+        const diasNombres = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+        
+        // Obtener información de la ruta o sector
+        const nombreRuta = horario.sector ? horario.sector.nombre : 
+                          horario.ruta_id ? `Ruta #${horario.ruta_id}` : 
+                          'Sin asignar';
+        
+        return `
+            <div class="horario-row">
+                <div class="horario-sector">
+                    �️ ${nombreRuta}
+                </div>
+                <div class="horario-dias">
+                    ${diasNombres.map((dia, index) => `
+                        <span class="dia-badge ${diasArray.includes((index + 1).toString()) ? 'active' : ''}">
+                            ${dia}
+                        </span>
+                    `).join('')}
+                </div>
+                <div class="horario-tiempo">
+                    🕐 ${horario.hora_inicio} - ${horario.hora_fin}
+                </div>
+                <div class="horario-info">
+                    ${horario.tipo_recoleccion === 'organica' ? '🍃' : '♻️'} 
+                    ${horario.tipo_recoleccion.charAt(0).toUpperCase() + horario.tipo_recoleccion.slice(1)}
+                    ${horario.conductor ? '<br>👤 ' + horario.conductor.nombre_completo : ''}
+                </div>
+                <div>
+                    <span class="horario-status ${horario.activo ? 'activo' : 'inactivo'}">
+                        ${horario.activo ? 'ACTIVO' : 'INACTIVO'}
+                    </span>
+                </div>
+                <div class="horario-actions">
+                    <button class="btn-secondary btn-sm" onclick="openEditHorario(${horario.id})">
+                        ✏️
+                    </button>
+                    <button class="btn-${horario.activo ? 'danger' : 'success'} btn-sm" 
+                            onclick="toggleHorarioStatus(${horario.id}, ${!horario.activo})">
+                        ${horario.activo ? '⏸️' : '▶️'}
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// Cargar sectores para dropdown
+async function loadSectoresDropdown() {
+    if (!authToken) return;
+    
+    try {
+        const response = await fetch(`${API_URL}/api/horarios/sectores`, {
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            }
+        });
+        
+        if (!response.ok) throw new Error('Error al cargar sectores');
+        
+        const sectores = await response.json();
+        const select = document.getElementById('horarioSector');
+        
+        select.innerHTML = '<option value="">Seleccione un sector...</option>' +
+            sectores.map(sector => 
+                `<option value="${sector.id}">${sector.nombre} (${sector.zona})</option>`
+            ).join('');
+            
+    } catch (error) {
+        console.error('Error:', error);
+    }
+}
+
+// Cargar conductores para dropdown
+async function loadConductoresDropdown() {
+    if (!authToken) return;
+    
+    try {
+        const response = await fetch(`${API_URL}/api/operadores/conductores`, {
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            }
+        });
+        
+        if (!response.ok) throw new Error('Error al cargar conductores');
+        
+        const conductores = await response.json();
+        const select = document.getElementById('horarioConductor');
+        
+        select.innerHTML = '<option value="">Sin conductor asignado</option>' +
+            conductores.map(conductor => 
+                `<option value="${conductor.id}">${conductor.nombre_completo}</option>`
+            ).join('');
+            
+    } catch (error) {
+        console.error('Error:', error);
+    }
+}
+
+// Crear nuevo horario
+async function createHorario() {
+    const errorDiv = document.getElementById('createHorarioError');
+    errorDiv.textContent = '';
+    errorDiv.classList.remove('active');
+    
+    try {
+        const ruta_id = document.getElementById('horarioRuta').value;
+        const tipo_recoleccion = document.getElementById('horarioTipo').value;
+        const hora_inicio = document.getElementById('horarioInicio').value;
+        const hora_fin = document.getElementById('horarioFin').value;
+        const conductor_id = document.getElementById('horarioConductor').value;
+        const camion_tipo = document.getElementById('horarioCamionTipo').value;
+        
+        // Obtener días seleccionados
+        const diasCheckboxes = document.querySelectorAll('input[name="horarioDias"]:checked');
+        if (diasCheckboxes.length === 0) {
+            errorDiv.textContent = 'Debe seleccionar al menos un día';
+            errorDiv.classList.add('active');
+            return;
+        }
+        
+        const dias_semana = Array.from(diasCheckboxes).map(cb => cb.value).join(',');
+        
+        if (!ruta_id || !tipo_recoleccion || !hora_inicio || !hora_fin || !conductor_id) {
+            errorDiv.textContent = 'Todos los campos obligatorios deben estar completos';
+            errorDiv.classList.add('active');
+            return;
+        }
+        
+        const horarioData = {
+            ruta_id: parseInt(ruta_id),
+            tipo_recoleccion,
+            dias_semana,
+            hora_inicio,
+            hora_fin,
+            conductor_id: parseInt(conductor_id),
+            camion_tipo: camion_tipo || null
+        };
+        
+        showLoading();
+        
+        const response = await fetch(`${API_URL}/api/horarios/rutas`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(horarioData)
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Error al crear horario');
+        }
+        
+        showMessage('Horario creado exitosamente', 'success');
+        document.getElementById('createHorarioModal').classList.remove('active');
+        document.getElementById('createHorarioForm').reset();
+        loadHorarios();
+        
+    } catch (error) {
+        console.error('Error:', error);
+        errorDiv.textContent = error.message;
+        errorDiv.classList.add('active');
+    } finally {
+        hideLoading();
+    }
+}
+
+// Abrir modal de editar horario
+async function openEditHorario(horarioId) {
+    try {
+        showLoading();
+        
+        const response = await fetch(`${API_URL}/api/horarios/${horarioId}`, {
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            }
+        });
+        
+        if (!response.ok) throw new Error('Error al cargar horario');
+        
+        const horario = await response.json();
+        
+        // Cargar dropdowns primero
+        await loadSectoresDropdown();
+        await loadConductoresDropdown();
+        
+        // Llenar formulario
+        document.getElementById('editHorarioId').value = horario.id;
+        document.getElementById('editHorarioSector').value = horario.sector_id;
+        document.getElementById('editHorarioTipo').value = horario.tipo_recoleccion;
+        document.getElementById('editHorarioInicio').value = horario.hora_inicio;
+        document.getElementById('editHorarioFin').value = horario.hora_fin;
+        document.getElementById('editHorarioConductor').value = horario.conductor_id || '';
+        
+        // Seleccionar días
+        const diasArray = horario.dias_semana.split(',');
+        document.querySelectorAll('input[name="editHorarioDias"]').forEach(checkbox => {
+            checkbox.checked = diasArray.includes(checkbox.value);
+        });
+        
+        document.getElementById('editHorarioModal').classList.add('active');
+        
+    } catch (error) {
+        console.error('Error:', error);
+        showMessage('Error al cargar horario', 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+// Actualizar horario
+async function updateHorario() {
+    const errorDiv = document.getElementById('editHorarioError');
+    errorDiv.textContent = '';
+    errorDiv.classList.remove('active');
+    
+    try {
+        const horarioId = document.getElementById('editHorarioId').value;
+        const sector_id = document.getElementById('editHorarioSector').value;
+        const tipo_recoleccion = document.getElementById('editHorarioTipo').value;
+        const hora_inicio = document.getElementById('editHorarioInicio').value;
+        const hora_fin = document.getElementById('editHorarioFin').value;
+        const conductor_id = document.getElementById('editHorarioConductor').value || null;
+        
+        // Obtener días seleccionados
+        const diasCheckboxes = document.querySelectorAll('input[name="editHorarioDias"]:checked');
+        if (diasCheckboxes.length === 0) {
+            errorDiv.textContent = 'Debe seleccionar al menos un día';
+            errorDiv.classList.add('active');
+            return;
+        }
+        
+        const dias_semana = Array.from(diasCheckboxes).map(cb => cb.value).join(',');
+        
+        const horarioData = {
+            sector_id: parseInt(sector_id),
+            tipo_recoleccion,
+            dias_semana,
+            hora_inicio,
+            hora_fin,
+            conductor_id: conductor_id ? parseInt(conductor_id) : null
+        };
+        
+        showLoading();
+        
+        const response = await fetch(`${API_URL}/api/horarios/${horarioId}`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(horarioData)
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Error al actualizar horario');
+        }
+        
+        showMessage('Horario actualizado exitosamente', 'success');
+        document.getElementById('editHorarioModal').classList.remove('active');
+        loadHorarios();
+        
+    } catch (error) {
+        console.error('Error:', error);
+        errorDiv.textContent = error.message;
+        errorDiv.classList.add('active');
+    } finally {
+        hideLoading();
+    }
+}
+
+// Activar/desactivar horario
+async function toggleHorarioStatus(horarioId, activo) {
+    try {
+        showLoading();
+        
+        const response = await fetch(`${API_URL}/api/horarios/${horarioId}/${activo ? 'activar' : 'desactivar'}`, {
+            method: 'PATCH',
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            }
+        });
+        
+        if (!response.ok) throw new Error('Error al actualizar estado');
+        
+        showMessage(`Horario ${activo ? 'activado' : 'desactivado'} exitosamente`, 'success');
+        loadHorarios();
+        
+    } catch (error) {
+        console.error('Error:', error);
+        showMessage('Error al actualizar estado', 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+// ==================== EJECUCIONES ====================
+
+// Cargar ejecuciones de hoy
+async function loadEjecucionesHoy() {
+    if (!authToken) return;
+    
+    showLoading();
+    
+    try {
+        const hoy = new Date().toISOString().split('T')[0];
+        const response = await fetch(`${API_URL}/api/horarios/ejecuciones?fecha=${hoy}`, {
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            }
+        });
+        
+        if (!response.ok) throw new Error('Error al cargar ejecuciones');
+        
+        const ejecuciones = await response.json();
+        displayEjecuciones(ejecuciones);
+    } catch (error) {
+        console.error('Error:', error);
+        showMessage('Error al cargar ejecuciones', 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+// Mostrar ejecuciones
+function displayEjecuciones(ejecuciones) {
+    const grid = document.getElementById('ejecucionesGrid');
+    
+    if (ejecuciones.length === 0) {
+        grid.innerHTML = '<div class="empty-day">No hay ejecuciones programadas para hoy</div>';
+        return;
+    }
+    
+    grid.innerHTML = ejecuciones.map(ejecucion => {
+        const cumplimiento = ejecucion.porcentaje_cumplimiento || 0;
+        
+        return `
+            <div class="ejecucion-card">
+                <div class="ejecucion-header">
+                    <div class="ejecucion-sector">${ejecucion.sector.nombre}</div>
+                    <span class="ejecucion-status ${ejecucion.estado}">
+                        ${ejecucion.estado.toUpperCase().replace('_', ' ')}
+                    </span>
+                </div>
+                <div class="ejecucion-info">
+                    <div class="ejecucion-info-item">
+                        🕐 <strong>Horario:</strong> ${ejecucion.hora_inicio} - ${ejecucion.hora_fin}
+                    </div>
+                    <div class="ejecucion-info-item">
+                        ${ejecucion.tipo_recoleccion === 'organica' ? '🍃' : '♻️'} 
+                        <strong>Tipo:</strong> ${ejecucion.tipo_recoleccion}
+                    </div>
+                    ${ejecucion.conductor ? `
+                        <div class="ejecucion-info-item">
+                            👤 <strong>Conductor:</strong> ${ejecucion.conductor.nombre_completo}
+                        </div>
+                    ` : ''}
+                    ${ejecucion.hora_inicio_real ? `
+                        <div class="ejecucion-info-item">
+                            ▶️ <strong>Inicio real:</strong> ${ejecucion.hora_inicio_real}
+                        </div>
+                    ` : ''}
+                    ${ejecucion.hora_fin_real ? `
+                        <div class="ejecucion-info-item">
+                            ⏹️ <strong>Fin real:</strong> ${ejecucion.hora_fin_real}
+                        </div>
+                    ` : ''}
+                </div>
+                ${ejecucion.estado === 'completada' ? `
+                    <div class="ejecucion-progress">
+                        <div class="progress-label">
+                            <span>Cumplimiento</span>
+                            <span><strong>${cumplimiento}%</strong></span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: ${cumplimiento}%"></div>
+                        </div>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }).join('');
+}
+
+// ==================== INICIALIZACIÓN AL CARGAR DOM ====================
+document.addEventListener('DOMContentLoaded', () => {
+    // Event listeners para modales de horarios
+    document.getElementById('createHorarioBtn')?.addEventListener('click', () => {
+        document.getElementById('createHorarioForm').reset();
+        loadRutasDropdown();
+        loadConductoresDropdown();
+        document.getElementById('createHorarioModal').classList.add('active');
+    });
+
+    document.getElementById('createHorarioForm')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        createHorario();
+    });
+
+    document.getElementById('editHorarioForm')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        updateHorario();
+    });
+});
+
+// Función auxiliar para mostrar mensajes
+function showMessage(message, type = 'info') {
+    // Crear elemento de mensaje temporal
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `alert alert-${type}`;
+    messageDiv.textContent = message;
+    messageDiv.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 15px 20px;
+        background: ${type === 'success' ? '#10b981' : type === 'error' ? '#ef4444' : '#3b82f6'};
+        color: white;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        z-index: 10000;
+        animation: slideIn 0.3s ease;
+    `;
+    
+    document.body.appendChild(messageDiv);
+    
+    setTimeout(() => {
+        messageDiv.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => messageDiv.remove(), 300);
+    }, 3000);
+}
+
 

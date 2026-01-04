@@ -3,11 +3,13 @@ Router de incidencias para FastAPI
 """
 from fastapi import APIRouter, Depends, HTTPException, status  # type: ignore[import]
 from sqlalchemy.orm import Session  # type: ignore[import]
+from sqlalchemy import func  # type: ignore[import]
 from pydantic import BaseModel  # type: ignore[import]
 from typing import Annotated, List, Optional
 from datetime import datetime
+from geoalchemy2.elements import WKTElement  # type: ignore[import]
 from app.database import get_db
-from app.models import Incidencia
+from app.models import Incidencia, Config
 
 router = APIRouter(prefix="/incidencias", tags=["incidencias"])
 
@@ -37,8 +39,8 @@ class IncidenciaCreate(BaseModel):
     gravedad: int = 1
     descripcion: str
     foto_url: Optional[str] = None
-    lat: Optional[float] = None
-    lon: Optional[float] = None
+    lat: float  # Obligatorio
+    lon: float  # Obligatorio
     zona: str
     usuario_id: int = 1  # Default para testing
 
@@ -71,6 +73,64 @@ async def estadisticas(db: Annotated[Session, Depends(get_db)]):
     }
 
 
+@router.get("/umbrales")
+async def obtener_umbrales(db: Annotated[Session, Depends(get_db)]):
+    """
+    Obtener información de umbrales de gravedad por zona
+    Muestra el umbral configurado y la gravedad acumulada por zona
+    """
+    # Obtener umbral configurado
+    config = db.query(Config).filter(Config.clave == "umbral_gravedad").first()
+    umbral = int(config.valor) if config else 20
+    
+    # Calcular suma de gravedad por zona para incidencias validadas
+    resultado_oriental = db.query(
+        func.coalesce(func.sum(Incidencia.gravedad), 0)
+    ).filter(
+        Incidencia.zona == "oriental",
+        Incidencia.estado == "validada"
+    ).scalar()
+    
+    resultado_occidental = db.query(
+        func.coalesce(func.sum(Incidencia.gravedad), 0)
+    ).filter(
+        Incidencia.zona == "occidental",
+        Incidencia.estado == "validada"
+    ).scalar()
+    
+    suma_oriental = int(resultado_oriental) if resultado_oriental else 0
+    suma_occidental = int(resultado_occidental) if resultado_occidental else 0
+    
+    # Contar incidencias validadas por zona
+    count_oriental = db.query(Incidencia).filter(
+        Incidencia.zona == "oriental",
+        Incidencia.estado == "validada"
+    ).count()
+    
+    count_occidental = db.query(Incidencia).filter(
+        Incidencia.zona == "occidental",
+        Incidencia.estado == "validada"
+    ).count()
+    
+    return {
+        "umbral": umbral,
+        "oriental": {
+            "gravedad_acumulada": suma_oriental,
+            "incidencias_validadas": count_oriental,
+            "porcentaje": round((suma_oriental / umbral * 100), 2) if umbral > 0 else 0,
+            "falta": max(0, umbral - suma_oriental),
+            "supera_umbral": suma_oriental > umbral
+        },
+        "occidental": {
+            "gravedad_acumulada": suma_occidental,
+            "incidencias_validadas": count_occidental,
+            "porcentaje": round((suma_occidental / umbral * 100), 2) if umbral > 0 else 0,
+            "falta": max(0, umbral - suma_occidental),
+            "supera_umbral": suma_occidental > umbral
+        }
+    }
+
+
 @router.get("/", response_model=List[IncidenciaResponse])
 async def listar_incidencias(
     db: Annotated[Session, Depends(get_db)],
@@ -96,6 +156,16 @@ async def crear_incidencia(
     db: Annotated[Session, Depends(get_db)]
 ):
     """Crear nueva incidencia"""
+    # Validar que lat y lon no sean None
+    if incidencia.lat is None or incidencia.lon is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Las coordenadas (lat, lon) son obligatorias"
+        )
+    
+    # Crear el objeto de geometría a partir de lat/lon
+    geom = WKTElement(f'POINT({incidencia.lon} {incidencia.lat})', srid=4326)
+    
     new_incident = Incidencia(
         tipo=incidencia.tipo,
         gravedad=incidencia.gravedad,
@@ -103,6 +173,7 @@ async def crear_incidencia(
         foto_url=incidencia.foto_url,
         lat=incidencia.lat,
         lon=incidencia.lon,
+        geom=geom,  # Agregar la geometría
         zona=incidencia.zona,
         usuario_id=incidencia.usuario_id,
         estado="pendiente",
@@ -155,3 +226,27 @@ async def eliminar_incidencia(incidencia_id: int, db: Annotated[Session, Depends
     db.delete(incidencia)
     db.commit()
     return {"mensaje": "Incidencia eliminada"}
+
+
+@router.post("/{incidencia_id}/validate", response_model=IncidenciaResponse)
+async def validar_incidencia(
+    incidencia_id: int,
+    db: Annotated[Session, Depends(get_db)]
+):
+    """Validar una incidencia (cambiar estado de pendiente a validada)"""
+    incidencia = db.query(Incidencia).filter(Incidencia.id == incidencia_id).first()
+    if not incidencia:
+        raise HTTPException(status_code=404, detail="Incidencia no encontrada")
+    
+    if incidencia.estado != "pendiente":
+        raise HTTPException(
+            status_code=400, 
+            detail=f"No se puede validar una incidencia en estado '{incidencia.estado}'"
+        )
+    
+    incidencia.estado = "validada"
+    incidencia.updated_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(incidencia)
+    return incidencia

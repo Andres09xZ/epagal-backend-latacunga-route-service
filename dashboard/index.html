@@ -116,8 +116,9 @@
             <!-- HORARIOS TAB -->
             <div id="horarios" class="tab-content">
                 <div class="content-header">
-                    <h2>📅 Calendario de Rutas Programadas</h2>
+                    <h2>📅 Sistema de Horarios de Recolección</h2>
                     <div class="filters">
+                        <button id="createHorarioBtn" class="btn btn-primary">📅 Crear Horario</button>
                         <select id="filterHorarioZona" onchange="loadHorarios()">
                             <option value="">Todas las zonas</option>
                             <option value="oriental">Oriental</option>
@@ -126,9 +127,25 @@
                         <button onclick="loadHorarios()" class="btn btn-secondary">🔄 Actualizar</button>
                     </div>
                 </div>
-                
-                <div id="horariosContent">
-                    <div class="loading">Cargando horarios...</div>
+
+                <!-- Sub-tabs para Horarios y Ejecuciones -->
+                <div class="sub-tabs">
+                    <button class="sub-tab-btn active" data-subtab="horarios-list" onclick="switchSubTab('horarios-list')">📋 Horarios Programados</button>
+                    <button class="sub-tab-btn" data-subtab="ejecuciones" onclick="switchSubTab('ejecuciones')">🚛 Ejecuciones Hoy</button>
+                </div>
+
+                <!-- Horarios List Content -->
+                <div id="horarios-list" class="sub-tab-content active">
+                    <div id="horariosTable" class="horarios-table">
+                        <div class="loading">Cargando horarios...</div>
+                    </div>
+                </div>
+
+                <!-- Ejecuciones Content -->
+                <div id="ejecuciones" class="sub-tab-content">
+                    <div id="ejecucionesGrid" class="ejecuciones-grid">
+                        <div class="loading">Cargando ejecuciones...</div>
+                    </div>
                 </div>
             </div>
 
@@ -288,6 +305,223 @@
             </form>
             
             <div id="createConductorError" class="error-message"></div>
+        </div>
+    </div>
+
+    <!-- Modal: Crear Sector -->
+    <div id="createSectorModal" class="modal">
+        <div class="modal-content modal-large">
+            <h2>🗺️ Crear Nuevo Sector</h2>
+            
+            <form id="createSectorForm">
+                <div class="form-group">
+                    <label>Nombre del Sector:</label>
+                    <input type="text" id="sectorNombre" placeholder="Ej: La Matriz" required>
+                </div>
+                
+                <div class="form-group">
+                    <label>Zona:</label>
+                    <select id="sectorZona" required>
+                        <option value="">Seleccione una zona</option>
+                        <option value="oriental">Oriental</option>
+                        <option value="occidental">Occidental</option>
+                    </select>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Población Estimada:</label>
+                        <input type="number" id="sectorPoblacion" placeholder="Ej: 5000">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Cantidad de Viviendas:</label>
+                        <input type="number" id="sectorViviendas" placeholder="Ej: 1200">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Coordenadas del Centro (Lat, Lon):</label>
+                    <div class="form-row">
+                        <input type="number" step="0.000001" id="sectorCentroLat" placeholder="Latitud: -0.9322" required>
+                        <input type="number" step="0.000001" id="sectorCentroLon" placeholder="Longitud: -78.6170" required>
+                    </div>
+                    <small>Puede obtener las coordenadas desde Google Maps</small>
+                </div>
+
+                <div class="form-group">
+                    <label>Polígono (coordenadas de las esquinas):</label>
+                    <textarea id="sectorPoligono" rows="4" placeholder='[[lon1, lat1], [lon2, lat2], [lon3, lat3], [lon4, lat4], [lon1, lat1]]
+Ejemplo: [[-78.6191, -0.9344], [-78.6150, -0.9344], [-78.6150, -0.9300], [-78.6191, -0.9300], [-78.6191, -0.9344]]' required></textarea>
+                    <small>Formato: array de coordenadas [longitud, latitud]. El primer y último punto deben ser iguales.</small>
+                </div>
+                
+                <div class="modal-actions">
+                    <button type="submit" class="btn btn-success">Crear Sector</button>
+                    <button type="button" onclick="closeModal('createSectorModal')" class="btn btn-secondary">Cancelar</button>
+                </div>
+            </form>
+            
+            <div id="createSectorError" class="error-message"></div>
+        </div>
+    </div>
+
+    <!-- Modal: Crear Horario -->
+    <div id="createHorarioModal" class="modal">
+        <div class="modal-content modal-large">
+            <h2>📅 Crear Nuevo Horario de Recolección</h2>
+            
+            <div class="info-box">
+                <strong>💡 Información:</strong> Los horarios se crearán basados en las rutas generadas automáticamente. 
+                Selecciona la zona, configura los días y horas, y asigna un conductor.
+            </div>
+            
+            <form id="createHorarioForm">
+                <div class="form-group">
+                    <label>Ruta Generada:</label>
+                    <select id="horarioRuta" required>
+                        <option value="">Seleccione una ruta...</option>
+                    </select>
+                    <small>Se mostrarán las rutas generadas disponibles por zona</small>
+                </div>
+
+                <div class="form-group">
+                    <label>Días de la Semana:</label>
+                    <div class="checkbox-group">
+                        <label><input type="checkbox" name="horarioDias" value="1"> Lunes</label>
+                        <label><input type="checkbox" name="horarioDias" value="2"> Martes</label>
+                        <label><input type="checkbox" name="horarioDias" value="3"> Miércoles</label>
+                        <label><input type="checkbox" name="horarioDias" value="4"> Jueves</label>
+                        <label><input type="checkbox" name="horarioDias" value="5"> Viernes</label>
+                        <label><input type="checkbox" name="horarioDias" value="6"> Sábado</label>
+                        <label><input type="checkbox" name="horarioDias" value="7"> Domingo</label>
+                    </div>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Hora de Inicio:</label>
+                        <input type="time" id="horarioInicio" value="06:00" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Hora de Fin:</label>
+                        <input type="time" id="horarioFin" value="12:00" required>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Tipo de Recolección:</label>
+                        <select id="horarioTipo" required>
+                            <option value="domestica">Domiciliaria</option>
+                            <option value="comercial">Comercial</option>
+                            <option value="barrido">Barrido de Calles</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Tipo de Camión:</label>
+                        <select id="horarioCamionTipo">
+                            <option value="">Sin asignar</option>
+                            <option value="posterior">Posterior</option>
+                            <option value="lateral">Lateral</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Conductor Asignado:</label>
+                    <select id="horarioConductor" required>
+                        <option value="">Seleccione un conductor...</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Placa del Camión (Opcional):</label>
+                    <input type="text" id="horarioCamionPlaca" placeholder="Ej: ABC-1234">
+                </div>
+
+                <div class="form-group">
+                    <label>Descripción:</label>
+                    <textarea id="horarioDescripcion" rows="2" placeholder="Ej: Recolección domiciliaria matutina"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label>Fecha de Inicio de Vigencia:</label>
+                    <input type="date" id="horarioFechaInicio" required>
+                </div>
+                
+                <div class="modal-actions">
+                    <button type="submit" class="btn btn-success">Crear Horario</button>
+                    <button type="button" onclick="closeModal('createHorarioModal')" class="btn btn-secondary">Cancelar</button>
+                </div>
+            </form>
+            
+            <div id="createHorarioError" class="error-message"></div>
+        </div>
+    </div>
+
+    <!-- Modal: Editar Horario -->
+    <div id="editHorarioModal" class="modal">
+        <div class="modal-content modal-large">
+            <h2>✏️ Editar Horario</h2>
+            
+            <form id="editHorarioForm">
+                <input type="hidden" id="editHorarioId">
+                
+                <div class="form-group">
+                    <label>Días de la Semana:</label>
+                    <div class="checkbox-group">
+                        <label><input type="checkbox" name="editHorarioDias" value="1"> Lunes</label>
+                        <label><input type="checkbox" name="editHorarioDias" value="2"> Martes</label>
+                        <label><input type="checkbox" name="editHorarioDias" value="3"> Miércoles</label>
+                        <label><input type="checkbox" name="editHorarioDias" value="4"> Jueves</label>
+                        <label><input type="checkbox" name="editHorarioDias" value="5"> Viernes</label>
+                        <label><input type="checkbox" name="editHorarioDias" value="6"> Sábado</label>
+                        <label><input type="checkbox" name="editHorarioDias" value="7"> Domingo</label>
+                    </div>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Hora de Inicio:</label>
+                        <input type="time" id="editHorarioInicio" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Hora de Fin:</label>
+                        <input type="time" id="editHorarioFin" required>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Conductor:</label>
+                    <select id="editHorarioConductor">
+                        <option value="">Sin asignar</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Placa del Camión:</label>
+                    <input type="text" id="editHorarioCamionPlaca">
+                </div>
+
+                <div class="form-group">
+                    <label>Estado:</label>
+                    <select id="editHorarioActivo">
+                        <option value="true">Activo</option>
+                        <option value="false">Inactivo</option>
+                    </select>
+                </div>
+                
+                <div class="modal-actions">
+                    <button type="submit" class="btn btn-success">Guardar Cambios</button>
+                    <button type="button" onclick="closeModal('editHorarioModal')" class="btn btn-secondary">Cancelar</button>
+                </div>
+            </form>
+            
+            <div id="editHorarioError" class="error-message"></div>
         </div>
     </div>
 

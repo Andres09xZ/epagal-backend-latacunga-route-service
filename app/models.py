@@ -299,3 +299,187 @@ class AsignacionConductor(Base):
 
     def __repr__(self):
         return f"<AsignacionConductor(id={self.id}, ruta={self.ruta_id}, conductor={self.conductor_id}, estado={self.estado})>"
+
+
+class Sector(Base):
+    """
+    Modelo para sectores geográficos de Latacunga
+    Divididos en zona oriental y occidental
+    """
+    __tablename__ = "sectores"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String(100), nullable=False, unique=True)
+    zona = Column(String(10), nullable=False)  # 'oriental' o 'occidental'
+    poligono = Column(Geometry('POLYGON', srid=4326), nullable=False)
+    coordenadas_centro = Column(Geometry('POINT', srid=4326), nullable=False)
+    poblacion_estimada = Column(Integer)
+    cantidad_viviendas = Column(Integer)
+    activo = Column(Boolean, default=True)
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+    updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Constraints
+    __table_args__ = (
+        CheckConstraint("zona IN ('oriental', 'occidental')", name='check_sector_zona'),
+    )
+
+    # Relaciones
+    horarios = relationship("HorarioRecoleccion", back_populates="sector")
+
+    def __repr__(self):
+        return f"<Sector(id={self.id}, nombre={self.nombre}, zona={self.zona})>"
+
+
+class HorarioRecoleccion(Base):
+    """
+    Modelo para horarios fijos de recolección por sector
+    Define días de la semana y horas de operación
+    """
+    __tablename__ = "horarios_recoleccion"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sector_id = Column(Integer, ForeignKey('sectores.id'), nullable=False)
+    
+    # Días de la semana (1=Lun, 2=Mar, ..., 7=Dom) almacenado como string "1,3,5"
+    dias_semana = Column(String(20), nullable=False)  # "1,3,5" = Lun, Mié, Vie
+    hora_inicio = Column(String(5), nullable=False)  # "06:00"
+    hora_fin = Column(String(5), nullable=False)  # "08:00"
+    
+    # Tipo de recolección
+    tipo = Column(String(20), default='domestica')  # domestica, comercial, barrido
+    descripcion = Column(Text)
+    
+    # Recursos asignados
+    camion_tipo = Column(String(15))  # posterior, lateral
+    conductor_id = Column(Integer, ForeignKey('conductores.id'), nullable=True)
+    camion_placa = Column(String(20))
+    
+    # Ruta predefinida
+    ruta_optimizada = Column(Geometry('LINESTRING', srid=4326), nullable=True)
+    distancia_km = Column(Float)
+    duracion_estimada = Column(Interval)  # Intervalo de tiempo
+    
+    # Control de vigencia
+    activo = Column(Boolean, default=True)
+    fecha_inicio_vigencia = Column(TIMESTAMP, nullable=False)
+    fecha_fin_vigencia = Column(TIMESTAMP, nullable=True)
+    
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+    updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Constraints
+    __table_args__ = (
+        CheckConstraint("tipo IN ('domestica', 'comercial', 'barrido')", name='check_horario_tipo'),
+        CheckConstraint("camion_tipo IN ('lateral', 'posterior')", name='check_horario_camion_tipo'),
+    )
+
+    # Relaciones
+    sector = relationship("Sector", back_populates="horarios")
+    conductor = relationship("Conductor", foreign_keys=[conductor_id])
+    ejecuciones = relationship("EjecucionHorario", back_populates="horario")
+    suspensiones = relationship("SuspensionHorario", back_populates="horario")
+
+    def __repr__(self):
+        return f"<HorarioRecoleccion(id={self.id}, sector={self.sector_id}, dias={self.dias_semana})>"
+
+
+class EjecucionHorario(Base):
+    """
+    Modelo para el registro de ejecución diaria de horarios
+    Rastrea cumplimiento y métricas
+    """
+    __tablename__ = "ejecuciones_horario"
+
+    id = Column(Integer, primary_key=True, index=True)
+    horario_id = Column(Integer, ForeignKey('horarios_recoleccion.id'), nullable=False)
+    
+    # Planificación
+    fecha_programada = Column(TIMESTAMP, nullable=False)
+    hora_inicio_programada = Column(String(5), nullable=False)
+    hora_fin_programada = Column(String(5), nullable=False)
+    
+    # Ejecución real
+    fecha_inicio_real = Column(TIMESTAMP, nullable=True)
+    fecha_fin_real = Column(TIMESTAMP, nullable=True)
+    
+    # Asignación
+    conductor_id = Column(Integer, ForeignKey('conductores.id'), nullable=False)
+    camion_placa = Column(String(20), nullable=False)
+    
+    # Estado
+    estado = Column(String(15), default='programada')  # programada, en_curso, completada, cancelada, atrasada
+    porcentaje_cumplimiento = Column(Float)  # 0-100
+    
+    # Tracking GPS
+    ruta_recorrida = Column(Geometry('LINESTRING', srid=4326), nullable=True)
+    
+    # Observaciones
+    observaciones = Column(Text)
+    incidentes = Column(Text)
+    
+    # Métricas
+    toneladas_recolectadas = Column(Float)
+    viviendas_atendidas = Column(Integer)
+    
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+    updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Constraints
+    __table_args__ = (
+        CheckConstraint("estado IN ('programada', 'en_curso', 'completada', 'cancelada', 'atrasada')", name='check_ejecucion_estado'),
+    )
+
+    # Relaciones
+    horario = relationship("HorarioRecoleccion", back_populates="ejecuciones")
+    conductor = relationship("Conductor")
+    puntos_tracking = relationship("PuntoTrackingHorario", back_populates="ejecucion")
+
+    def __repr__(self):
+        return f"<EjecucionHorario(id={self.id}, horario={self.horario_id}, fecha={self.fecha_programada}, estado={self.estado})>"
+
+
+class PuntoTrackingHorario(Base):
+    """
+    Modelo para puntos GPS de tracking en tiempo real
+    """
+    __tablename__ = "puntos_tracking_horario"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ejecucion_id = Column(Integer, ForeignKey('ejecuciones_horario.id'), nullable=False)
+    
+    punto = Column(Geometry('POINT', srid=4326), nullable=False)
+    timestamp = Column(TIMESTAMP, default=datetime.utcnow)
+    velocidad = Column(Float)  # km/h
+    
+    # Relaciones
+    ejecucion = relationship("EjecucionHorario", back_populates="puntos_tracking")
+
+    def __repr__(self):
+        return f"<PuntoTrackingHorario(id={self.id}, ejecucion={self.ejecucion_id})>"
+
+
+class SuspensionHorario(Base):
+    """
+    Modelo para suspensiones temporales de horarios
+    Feriados, mantenimiento, etc.
+    """
+    __tablename__ = "suspensiones_horario"
+
+    id = Column(Integer, primary_key=True, index=True)
+    horario_id = Column(Integer, ForeignKey('horarios_recoleccion.id'), nullable=False)
+    
+    fecha_suspension = Column(TIMESTAMP, nullable=False)
+    motivo = Column(Text, nullable=False)
+    fecha_recuperacion = Column(TIMESTAMP, nullable=True)  # Día alternativo
+    
+    notificado = Column(Boolean, default=False)
+    created_by = Column(Integer, ForeignKey('usuarios.id'), nullable=True)
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+
+    # Relaciones
+    horario = relationship("HorarioRecoleccion", back_populates="suspensiones")
+    usuario = relationship("Usuario")
+
+    def __repr__(self):
+        return f"<SuspensionHorario(id={self.id}, horario={self.horario_id}, fecha={self.fecha_suspension})>"
