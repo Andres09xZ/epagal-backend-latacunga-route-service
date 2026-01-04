@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 env:
-  DOCKER_IMAGE: aehidalgo3/tesisandrea-backend
+  DOCKER_IMAGE: mrengineer09/epagal-backend-routing
   DOCKER_TAG: latest
 
 jobs:
@@ -284,7 +284,7 @@ jobs:
           if [ ! -z "$LATEST_DEPLOY_IMAGE" ] && [ "$LATEST_DEPLOY_IMAGE" != "N/A" ]; then
             echo "Verifying image exists on Docker Hub: $LATEST_DEPLOY_IMAGE"
             
-            DOCKER_CHECK=$(curl -s "https://hub.docker.com/v2/repositories/aehidalgo3/tesisandrea-backend/tags/latest")
+            DOCKER_CHECK=$(curl -s "https://hub.docker.com/v2/repositories/mrengineer09/epagal-backend-routing/tags/latest")
             
             if echo "$DOCKER_CHECK" | jq -e '.name' > /dev/null 2>&1; then
               echo "Image found on Docker Hub"
