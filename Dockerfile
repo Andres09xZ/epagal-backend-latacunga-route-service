@@ -4,11 +4,14 @@ FROM python:3.11-slim
 # Establecer directorio de trabajo
 WORKDIR /app
 
-# Instalar dependencias del sistema necesarias para psycopg2 y ortools
+# Instalar dependencias del sistema necesarias para psycopg2, ortools y shapely
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     libpq-dev \
+    libgeos-dev \
+    libgdal-dev \
+    libproj-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copiar requirements

@@ -1,4 +1,5 @@
 numpy<2.0.0               # shapely/geo stack necesita NumPy 1.x
+shapely==2.0.*            # Para geometrías y análisis espacial
 fastapi==0.115.*
 uvicorn[standard]==0.30.*
 pydantic==2.9.*
