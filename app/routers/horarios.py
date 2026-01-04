@@ -745,8 +745,17 @@ async def resumen_diario(
 
 def _preparar_horario_response(horario: HorarioRecoleccion, db: Session) -> dict:
     """Prepara la respuesta de un horario con información adicional"""
-    dias_lista = [int(d) for d in horario.dias_semana.split(',')]
-    dias_nombres = [DIAS_SEMANA[d] for d in dias_lista]
+    # Manejar dias_semana como string (ej: "Lu,Mi,Vi" o "1,3,5")
+    dias_str = horario.dias_semana
+    dias_nombres = []
+    
+    try:
+        # Intentar parsear como números (formato antiguo)
+        dias_lista = [int(d.strip()) for d in dias_str.split(',')]
+        dias_nombres = [DIAS_SEMANA.get(d, str(d)) for d in dias_lista]
+    except (ValueError, AttributeError):
+        # Si no son números, son abreviaciones o nombres de días
+        dias_nombres = [d.strip() for d in dias_str.split(',')]
     
     conductor_nombre = None
     if horario.conductor_id:
