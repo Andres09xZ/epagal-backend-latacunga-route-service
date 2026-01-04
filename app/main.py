@@ -12,8 +12,12 @@ import os
 from app.database import engine, Base
 from app.routers import incidencias, rutas, auth, conductores, tasks, notifications, reports, reportes, operadores, horarios, tracking
 
-# Crear tablas
-Base.metadata.create_all(bind=engine)
+# Crear tablas (no bloquear arranque si la DB no responde)
+try:
+    Base.metadata.create_all(bind=engine)
+except Exception as e:
+    import logging
+    logging.warning("DB unavailable during startup: %s", e)
 
 app = FastAPI(
     title="Sistema de Gestión de Incidencias - EPAGAL Latacunga",
