@@ -118,7 +118,7 @@ jobs:
           deployment_environment: 'production'
           github_token: ${{ secrets.GITHUB_TOKEN }}
       
-      - name: Retrieve complete Render deployment logs
+      - name: Retrieve Render service logs and deployment information
         if: always()
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
@@ -126,149 +126,187 @@ jobs:
         run: |
           DEPLOY_STATUS="${{ steps.render_deploy.outcome }}"
           
+          echo "============================================"
           if [ "$DEPLOY_STATUS" == "success" ]; then
-            echo "============================================"
-            echo "DEPLOYMENT SUCCESSFUL"
-            echo "============================================"
-            echo ""
+            echo "DEPLOYMENT SUCCESSFUL - RETRIEVING LOGS"
           else
-            echo "============================================"
-            echo "DEPLOYMENT FAILED - ANALYZING LOGS"
-            echo "============================================"
-            echo ""
+            echo "DEPLOYMENT FAILED - RETRIEVING DIAGNOSTIC INFORMATION"
           fi
+          echo "============================================"
+          echo ""
           
-          echo "Fetching recent deploys from Render..."
+          echo "Step 1: Fetching service information..."
+          echo "--------------------------------------------"
+          SERVICE_INFO=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+            "https://api.render.com/v1/services/$SERVICE_ID")
+          
+          echo "$SERVICE_INFO" | jq '{
+            id: .id,
+            name: .name,
+            type: .type,
+            serviceDetails: .serviceDetails,
+            autoDeployEnabled: .autoDeployEnabled,
+            notifyOnFail: .notifyOnFail,
+            createdAt: .createdAt,
+            updatedAt: .updatedAt
+          }' 2>/dev/null || echo "$SERVICE_INFO"
+          echo ""
+          
+          echo "Step 2: Fetching recent deploys..."
+          echo "--------------------------------------------"
           DEPLOYS=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
             "https://api.render.com/v1/services/$SERVICE_ID/deploys?limit=3")
           
-          echo "API Response:"
-          echo "$DEPLOYS" | jq '.' 2>/dev/null || echo "$DEPLOYS"
-          echo ""
-          
           DEPLOY_COUNT=$(echo "$DEPLOYS" | jq 'length' 2>/dev/null || echo "0")
-          echo "Number of recent deploys found: $DEPLOY_COUNT"
+          echo "Recent deploys found: $DEPLOY_COUNT"
           echo ""
           
           if [ "$DEPLOY_COUNT" -gt 0 ]; then
-            for i in $(seq 0 $((DEPLOY_COUNT - 1))); do
-              DEPLOY_ID=$(echo "$DEPLOYS" | jq -r ".[$i].deploy.id // \"unknown\"" 2>/dev/null)
-              DEPLOY_STATUS_API=$(echo "$DEPLOYS" | jq -r ".[$i].deploy.status // \"unknown\"" 2>/dev/null)
-              CREATED_AT=$(echo "$DEPLOYS" | jq -r ".[$i].deploy.createdAt // \"unknown\"" 2>/dev/null)
-              FINISHED_AT=$(echo "$DEPLOYS" | jq -r ".[$i].deploy.finishedAt // \"N/A\"" 2>/dev/null)
-              IMAGE_REF=$(echo "$DEPLOYS" | jq -r ".[$i].deploy.image.ref // \"N/A\"" 2>/dev/null)
-              IMAGE_SHA=$(echo "$DEPLOYS" | jq -r ".[$i].deploy.image.sha // \"N/A\"" 2>/dev/null)
-              
-              echo "============================================"
-              echo "DEPLOY #$((i + 1)) INFORMATION"
-              echo "============================================"
-              echo "  Deploy ID: $DEPLOY_ID"
-              echo "  Status: $DEPLOY_STATUS_API"
-              echo "  Started: $CREATED_AT"
-              echo "  Finished: $FINISHED_AT"
-              echo "  Image: $IMAGE_REF"
-              echo "  Image SHA: $IMAGE_SHA"
-              echo ""
-              
-              if [ "$DEPLOY_ID" != "unknown" ] && [ "$DEPLOY_ID" != "null" ]; then
-                echo "--------------------------------------------"
-                echo "FETCHING LOGS FOR DEPLOY: $DEPLOY_ID"
-                echo "--------------------------------------------"
-                echo ""
-                
-                LOGS_RESPONSE=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer $RENDER_API_KEY" \
-                  "https://api.render.com/v1/services/$SERVICE_ID/deploys/$DEPLOY_ID/logs")
-                
-                HTTP_CODE=$(echo "$LOGS_RESPONSE" | tail -n1)
-                LOGS=$(echo "$LOGS_RESPONSE" | head -n-1)
-                
-                echo "Logs API HTTP Status: $HTTP_CODE"
-                
-                if [ "$HTTP_CODE" = "200" ]; then
-                  if [ ! -z "$LOGS" ] && [ "$LOGS" != "null" ] && [ "$LOGS" != "[]" ]; then
-                    LOG_COUNT=$(echo "$LOGS" | jq 'length' 2>/dev/null || echo "0")
-                    echo "Total log entries: $LOG_COUNT"
-                    echo ""
-                    
-                    if [ "$LOG_COUNT" -gt 0 ]; then
-                      echo "COMPLETE DEPLOYMENT LOGS:"
-                      echo "============================================"
-                      echo "$LOGS" | jq -r '.[] | "\(.timestamp // .createdAt // "N/A") [\(.level // "INFO")] \(.message // .text // .)"' 2>/dev/null || echo "$LOGS"
-                      echo "============================================"
-                      echo ""
-                      
-                      echo "FILTERING CRITICAL MESSAGES:"
-                      echo "============================================"
-                      ERROR_LOGS=$(echo "$LOGS" | jq -r '.[] | select(.message // .text | test("error|ERROR|Error|exception|Exception|EXCEPTION|fail|FAIL|Fail|traceback|Traceback|TRACEBACK|ModuleNotFoundError|ImportError|SyntaxError"; "i")) | "\(.timestamp // .createdAt // "N/A") - \(.message // .text // .)"' 2>/dev/null)
-                      
-                      if [ ! -z "$ERROR_LOGS" ]; then
-                        echo "$ERROR_LOGS"
-                      else
-                        echo "No critical error messages found in logs"
-                      fi
-                      echo "============================================"
-                      echo ""
-                      
-                      if [[ "$DEPLOY_STATUS_API" =~ ^(build_failed|update_failed|deploy_failed)$ ]]; then
-                        echo "LAST 100 LOG ENTRIES (most recent):"
-                        echo "============================================"
-                        echo "$LOGS" | jq -r '.[-100:] | .[] | "\(.timestamp // .createdAt // "N/A") - \(.message // .text // .)"' 2>/dev/null || echo "$LOGS" | tail -n 100
-                        echo "============================================"
-                      fi
-                    else
-                      echo "No log entries available"
-                    fi
-                  else
-                    echo "No logs returned from API (empty or null response)"
-                  fi
-                elif [ "$HTTP_CODE" = "404" ]; then
-                  echo "Deploy logs not found (404). Deploy may be too old or not yet started."
-                elif [ "$HTTP_CODE" = "401" ]; then
-                  echo "Authentication error (401). Check API key permissions."
-                else
-                  echo "Unexpected API response: HTTP $HTTP_CODE"
-                  echo "Response: $LOGS"
-                fi
-              else
-                echo "Skipping log fetch - invalid deploy ID"
-              fi
-              echo ""
-            done
-          else
-            echo "No deploys found for this service"
+            LATEST_DEPLOY_ID=$(echo "$DEPLOYS" | jq -r '.[0].deploy.id' 2>/dev/null)
+            LATEST_DEPLOY_STATUS=$(echo "$DEPLOYS" | jq -r '.[0].deploy.status' 2>/dev/null)
+            LATEST_DEPLOY_IMAGE=$(echo "$DEPLOYS" | jq -r '.[0].deploy.image.ref' 2>/dev/null)
+            
+            echo "Latest deploy:"
+            echo "  ID: $LATEST_DEPLOY_ID"
+            echo "  Status: $LATEST_DEPLOY_STATUS"
+            echo "  Image: $LATEST_DEPLOY_IMAGE"
+            echo ""
+            
+            echo "All recent deploys:"
+            echo "$DEPLOYS" | jq -r '.[] | "  - \(.deploy.id) | \(.deploy.status) | \(.deploy.createdAt)"' 2>/dev/null
+            echo ""
           fi
           
+          echo "Step 3: Fetching service runtime logs..."
+          echo "--------------------------------------------"
+          echo "Attempting to retrieve logs using different endpoints..."
           echo ""
-          echo "============================================"
-          echo "ANALYSIS SUMMARY"
-          echo "============================================"
           
-          if [ "$DEPLOY_COUNT" -gt 0 ]; then
-            FIRST_DEPLOY_STATUS=$(echo "$DEPLOYS" | jq -r ".[0].deploy.status // \"unknown\"" 2>/dev/null)
+          echo "Method 1: Service logs endpoint"
+          SERVICE_LOGS=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer $RENDER_API_KEY" \
+            "https://api.render.com/v1/services/$SERVICE_ID/logs?limit=200")
+          
+          HTTP_CODE=$(echo "$SERVICE_LOGS" | tail -n1)
+          LOGS_BODY=$(echo "$SERVICE_LOGS" | head -n-1)
+          
+          echo "HTTP Status: $HTTP_CODE"
+          
+          if [ "$HTTP_CODE" = "200" ]; then
+            LOG_COUNT=$(echo "$LOGS_BODY" | jq 'length' 2>/dev/null || echo "0")
+            echo "Log entries retrieved: $LOG_COUNT"
             
-            if [ "$FIRST_DEPLOY_STATUS" = "update_failed" ]; then
-              echo "Latest deploy status: update_failed"
+            if [ "$LOG_COUNT" -gt 0 ]; then
               echo ""
-              echo "Common causes for update_failed:"
-              echo "  1. Application fails to start (check startup logs)"
-              echo "  2. Health check endpoint not responding"
-              echo "  3. Port configuration mismatch"
-              echo "  4. Missing environment variables"
-              echo "  5. Database connection issues"
-              echo "  6. Python/dependency errors"
+              echo "COMPLETE SERVICE LOGS (last 200 entries):"
+              echo "============================================"
+              echo "$LOGS_BODY" | jq -r '.[] | "\(.timestamp // .createdAt // "N/A") - \(.message // .text // .)"' 2>/dev/null || echo "$LOGS_BODY"
+              echo "============================================"
               echo ""
-              echo "Recommended actions:"
-              echo "  1. Review the complete logs above"
-              echo "  2. Check if application starts locally with same Docker image"
-              echo "  3. Verify environment variables in Render dashboard"
-              echo "  4. Ensure health check endpoint (/health) is accessible"
+              
+              echo "FILTERING ERROR MESSAGES:"
+              echo "============================================"
+              ERROR_LOGS=$(echo "$LOGS_BODY" | jq -r '.[] | select(.message // .text | test("error|ERROR|Error|exception|Exception|fail|Fail|traceback|Traceback|fatal|Fatal|FATAL|crashed|Crashed|CRASHED"; "i")) | "\(.timestamp // .createdAt // "N/A") - \(.message // .text // .)"' 2>/dev/null)
+              
+              if [ ! -z "$ERROR_LOGS" ]; then
+                echo "$ERROR_LOGS"
+              else
+                echo "No error patterns found in logs"
+              fi
+              echo "============================================"
+            else
+              echo "No log entries available"
+            fi
+          else
+            echo "Unable to retrieve service logs (HTTP $HTTP_CODE)"
+            echo "Response: $LOGS_BODY"
+          fi
+          echo ""
+          
+          if [ "$DEPLOY_COUNT" -gt 0 ] && [ "$LATEST_DEPLOY_ID" != "null" ]; then
+            echo "Method 2: Deploy-specific logs endpoint"
+            DEPLOY_LOGS=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer $RENDER_API_KEY" \
+              "https://api.render.com/v1/services/$SERVICE_ID/deploys/$LATEST_DEPLOY_ID/logs")
+            
+            DEPLOY_HTTP_CODE=$(echo "$DEPLOY_LOGS" | tail -n1)
+            DEPLOY_LOGS_BODY=$(echo "$DEPLOY_LOGS" | head -n-1)
+            
+            echo "Deploy logs HTTP Status: $DEPLOY_HTTP_CODE"
+            
+            if [ "$DEPLOY_HTTP_CODE" = "200" ]; then
+              DEPLOY_LOG_COUNT=$(echo "$DEPLOY_LOGS_BODY" | jq 'length' 2>/dev/null || echo "0")
+              
+              if [ "$DEPLOY_LOG_COUNT" -gt 0 ]; then
+                echo "Deploy log entries: $DEPLOY_LOG_COUNT"
+                echo ""
+                echo "DEPLOYMENT LOGS:"
+                echo "============================================"
+                echo "$DEPLOY_LOGS_BODY" | jq -r '.[] | "\(.timestamp // .createdAt // "N/A") - \(.message // .text // .)"' 2>/dev/null || echo "$DEPLOY_LOGS_BODY"
+                echo "============================================"
+              else
+                echo "No deploy-specific logs available"
+              fi
+            else
+              echo "Deploy logs not available via API (HTTP $DEPLOY_HTTP_CODE)"
             fi
           fi
-          
           echo ""
+          
+          echo "Step 4: Analyzing failure patterns..."
+          echo "--------------------------------------------"
+          
+          if [ "$LATEST_DEPLOY_STATUS" = "update_failed" ]; then
+            echo "Status: update_failed"
+            echo ""
+            echo "This typically means:"
+            echo "  - Application started but failed health checks"
+            echo "  - Application crashed during initialization"
+            echo "  - Port binding issues"
+            echo ""
+            echo "Common solutions:"
+            echo "  1. Check if PORT environment variable is set correctly"
+            echo "  2. Verify health check endpoint exists and responds"
+            echo "  3. Check application logs for startup errors"
+            echo "  4. Test Docker image locally:"
+            echo "     docker run -p 8000:8000 $LATEST_DEPLOY_IMAGE"
+          elif [ "$LATEST_DEPLOY_STATUS" = "build_failed" ]; then
+            echo "Status: build_failed"
+            echo ""
+            echo "This means the Docker image failed to build or pull"
+          elif [ "$LATEST_DEPLOY_STATUS" = "deploy_failed" ]; then
+            echo "Status: deploy_failed"
+            echo ""
+            echo "This means deployment process encountered an error"
+          fi
+          echo ""
+          
+          echo "Step 5: Docker Hub image verification..."
+          echo "--------------------------------------------"
+          if [ ! -z "$LATEST_DEPLOY_IMAGE" ] && [ "$LATEST_DEPLOY_IMAGE" != "N/A" ]; then
+            echo "Verifying image exists on Docker Hub: $LATEST_DEPLOY_IMAGE"
+            
+            DOCKER_CHECK=$(curl -s "https://hub.docker.com/v2/repositories/mrengineer09/epagal-backend-routing/tags/latest")
+            
+            if echo "$DOCKER_CHECK" | jq -e '.name' > /dev/null 2>&1; then
+              echo "Image found on Docker Hub"
+              echo "Last updated: $(echo "$DOCKER_CHECK" | jq -r '.last_updated')"
+              echo "Image size: $(echo "$DOCKER_CHECK" | jq -r '.full_size' | awk '{printf "%.2f MB", $1/1024/1024}')"
+            else
+              echo "Unable to verify image on Docker Hub"
+            fi
+          fi
+          echo ""
+          
           echo "============================================"
-          echo "LOG RETRIEVAL COMPLETE"
+          echo "DIAGNOSTIC INFORMATION COMPLETE"
           echo "============================================"
+          echo ""
+          echo "RECOMMENDED NEXT STEPS:"
+          echo "1. Test the Docker image locally to verify it works"
+          echo "2. Check Render dashboard environment variables"
+          echo "3. Verify health check path is /health"
+          echo "4. Ensure PORT environment variable is used in your app"
+          echo "5. Check if database connections (if any) are configured"
+          echo ""
           
           if [ "$DEPLOY_STATUS" != "success" ]; then
             exit 1
@@ -345,6 +383,12 @@ jobs:
           else
             echo "PIPELINE FAILED"
             echo ""
-            echo "All relevant logs have been displayed above"
-            echo "Review the 'Retrieve complete Render deployment logs' step for detailed error information"
+            echo "All diagnostic information has been displayed above"
+            echo "Review the 'Retrieve Render service logs' step for details"
+            echo ""
+            echo "Key things to check:"
+            echo "  - Service runtime logs for error messages"
+            echo "  - Docker image can be pulled from Docker Hub"
+            echo "  - Application starts successfully locally"
+            echo "  - Health check endpoint /health exists"
           fi
