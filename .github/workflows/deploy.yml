@@ -12,7 +12,6 @@ on:
 env:
   DOCKER_IMAGE: mrengineer09/epagal-backend-routing
   DOCKER_TAG: latest
-  MAX_DEPLOY_ATTEMPTS: 5
 
 jobs:
   build-and-push:
@@ -64,10 +63,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-and-push
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    outputs:
-      deploy_status: ${{ steps.check_deploy.outputs.status }}
-      deploy_id: ${{ steps.trigger_deploy.outputs.deploy_id }}
-      deploy_attempt: ${{ steps.trigger_deploy.outputs.attempt }}
+    permissions:
+      deployments: write
     
     steps:
       - name: Validate secrets configuration
@@ -121,7 +118,7 @@ jobs:
           HTTP_CODE=$(echo "$API_TEST" | tail -n1)
           RESPONSE=$(echo "$API_TEST" | head -n-1)
           
-          echo "HTTP Status Code: $HTTP_CODE"
+          echo "API HTTP Status: $HTTP_CODE"
           
           if [ "$HTTP_CODE" = "200" ]; then
             echo "Connection successful with Render API"
@@ -144,255 +141,24 @@ jobs:
             echo "  3. Find it in Render dashboard URL"
             exit 1
           else
-            echo "Unexpected API response"
+            echo "ERROR: Unexpected API response"
+            echo "HTTP Status: $HTTP_CODE"
             echo "Response: $RESPONSE"
             exit 1
           fi
       
-      - name: Trigger Render deploy with retry
-        id: trigger_deploy
-        env:
-          MAX_ATTEMPTS: ${{ env.MAX_DEPLOY_ATTEMPTS }}
-        run: |
-          echo "============================================"
-          echo "Deploy Configuration"
-          echo "============================================"
-          echo "Maximum deploy attempts: $MAX_ATTEMPTS"
-          echo ""
-          
-          DEPLOY_SUCCESS=false
-          
-          for ATTEMPT in $(seq 1 $MAX_ATTEMPTS); do
-            echo ""
-            echo "============================================"
-            echo "Deploy Attempt $ATTEMPT of $MAX_ATTEMPTS"
-            echo "============================================"
-            
-            echo "Initiating deploy on Render..."
-            RESPONSE=$(curl -s -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}")
-            echo "Render response:"
-            echo "$RESPONSE" | jq '.' 2>/dev/null || echo "$RESPONSE"
-            
-            DEPLOY_ID=$(echo "$RESPONSE" | jq -r '.id // .deploy.id // empty' 2>/dev/null || echo "unknown")
-            
-            if [ -z "$DEPLOY_ID" ] || [ "$DEPLOY_ID" = "unknown" ]; then
-              echo "Could not obtain Deploy ID, but webhook was triggered"
-              DEPLOY_ID="webhook-triggered-$(date +%s)"
-            fi
-            
-            echo "Deploy triggered with ID: $DEPLOY_ID"
-            echo ""
-            
-            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
-              echo "Waiting 60 seconds before checking if retry is needed..."
-              sleep 60
-              
-              echo "Checking if deploy started successfully..."
-              CHECK_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
-                "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/deploys?limit=1")
-              
-              RECENT_STATUS=$(echo "$CHECK_RESPONSE" | jq -r '.[0].status // "unknown"' 2>/dev/null)
-              RECENT_ID=$(echo "$CHECK_RESPONSE" | jq -r '.[0].id // "unknown"' 2>/dev/null)
-              
-              echo "Recent deploy status: $RECENT_STATUS"
-              echo "Recent deploy ID: $RECENT_ID"
-              
-              if [[ "$RECENT_STATUS" =~ ^(building|deploying|pre_deploy|live)$ ]]; then
-                echo "Deploy appears to be processing successfully"
-                DEPLOY_SUCCESS=true
-                echo "deploy_id=$DEPLOY_ID" >> $GITHUB_OUTPUT
-                echo "attempt=$ATTEMPT" >> $GITHUB_OUTPUT
-                break
-              elif [[ "$RECENT_STATUS" =~ ^(build_failed|update_failed|deploy_failed)$ ]]; then
-                echo "Deploy failed immediately. Attempting retry..."
-                continue
-              else
-                echo "Deploy status unclear. Attempting retry..."
-                continue
-              fi
-            else
-              echo "Final attempt completed"
-              echo "deploy_id=$DEPLOY_ID" >> $GITHUB_OUTPUT
-              echo "attempt=$ATTEMPT" >> $GITHUB_OUTPUT
-              DEPLOY_SUCCESS=true
-            fi
-          done
-          
-          if [ "$DEPLOY_SUCCESS" = false ]; then
-            echo ""
-            echo "============================================"
-            echo "ERROR: All $MAX_ATTEMPTS deploy attempts failed"
-            echo "============================================"
-            exit 1
-          fi
-          
-          echo ""
-          echo "============================================"
-          echo "Deploy webhook triggered successfully on attempt $ATTEMPT"
-          echo "============================================"
-      
-      - name: Wait for deploy initialization
-        run: |
-          echo "Waiting 30 seconds for Render to initialize deploy..."
-          sleep 30
-      
-      - name: Monitor deploy status
-        id: check_deploy
-        env:
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
-        run: |
-          echo "Monitoring deploy status on Render..."
-          echo "Service ID: $SERVICE_ID"
-          echo ""
-          
-          MAX_ATTEMPTS=40
-          ATTEMPT=0
-          DEPLOY_STATUS="building"
-          
-          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-            ATTEMPT=$((ATTEMPT + 1))
-            echo ""
-            echo "============================================"
-            echo "Status Check $ATTEMPT/$MAX_ATTEMPTS"
-            echo "============================================"
-            
-            DEPLOYS_RESPONSE=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer $RENDER_API_KEY" \
-              "https://api.render.com/v1/services/$SERVICE_ID/deploys?limit=1")
-            
-            HTTP_CODE=$(echo "$DEPLOYS_RESPONSE" | tail -n1)
-            DEPLOYS=$(echo "$DEPLOYS_RESPONSE" | head -n-1)
-            
-            echo "API HTTP Status: $HTTP_CODE"
-            
-            if [ "$HTTP_CODE" != "200" ]; then
-              echo "Error querying API (HTTP $HTTP_CODE)"
-              echo "API Response: $DEPLOYS"
-              
-              if [ "$HTTP_CODE" = "401" ]; then
-                echo "Invalid API Key"
-                echo "status=failed" >> $GITHUB_OUTPUT
-                exit 1
-              elif [ "$HTTP_CODE" = "404" ]; then
-                echo "Service ID not found"
-                echo "status=failed" >> $GITHUB_OUTPUT
-                exit 1
-              fi
-              
-              echo "Retrying in 15 seconds..."
-              sleep 15
-              continue
-            fi
-            
-            if [ $ATTEMPT -eq 1 ]; then
-              echo ""
-              echo "Complete API response (first check):"
-              echo "--------------------------------------------"
-              echo "$DEPLOYS" | jq '.' 2>/dev/null || echo "$DEPLOYS"
-              echo "--------------------------------------------"
-              echo ""
-            fi
-            
-            if ! echo "$DEPLOYS" | jq -e 'type == "array"' > /dev/null 2>&1; then
-              echo "Response is not a valid array"
-              echo "Response type: $(echo "$DEPLOYS" | jq 'type' 2>/dev/null || echo 'unable to determine')"
-              echo "Raw response: $DEPLOYS"
-              sleep 15
-              continue
-            fi
-            
-            ARRAY_LENGTH=$(echo "$DEPLOYS" | jq 'length' 2>/dev/null || echo "0")
-            echo "Deploys array length: $ARRAY_LENGTH"
-            
-            if [ "$ARRAY_LENGTH" = "0" ]; then
-              echo "No deploys available yet"
-              echo "Waiting for Render to start deploy..."
-              sleep 15
-              continue
-            fi
-            
-            DEPLOY_STATUS=$(echo "$DEPLOYS" | jq -r '.[0].status // "unknown"' 2>/dev/null)
-            DEPLOY_ID=$(echo "$DEPLOYS" | jq -r '.[0].id // "unknown"' 2>/dev/null)
-            CREATED_AT=$(echo "$DEPLOYS" | jq -r '.[0].createdAt // "unknown"' 2>/dev/null)
-            FINISHED_AT=$(echo "$DEPLOYS" | jq -r '.[0].finishedAt // "N/A"' 2>/dev/null)
-            
-            echo ""
-            echo "Deploy Information:"
-            echo "  Status: $DEPLOY_STATUS"
-            echo "  Deploy ID: $DEPLOY_ID"
-            echo "  Started: $CREATED_AT"
-            
-            if [ "$FINISHED_AT" != "N/A" ] && [ "$FINISHED_AT" != "null" ]; then
-              echo "  Finished: $FINISHED_AT"
-            fi
-            
-            if [ "$DEPLOY_STATUS" = "live" ]; then
-              echo ""
-              echo "============================================"
-              echo "DEPLOY SUCCESSFUL"
-              echo "============================================"
-              echo "status=success" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-            
-            if [[ "$DEPLOY_STATUS" =~ ^(build_failed|update_failed|deploy_failed|deactivated|canceled)$ ]]; then
-              echo ""
-              echo "============================================"
-              echo "DEPLOY FAILED - Status: $DEPLOY_STATUS"
-              echo "============================================"
-              echo "status=failed" >> $GITHUB_OUTPUT
-              
-              echo ""
-              echo "Retrieving logs from Render..."
-              echo "============================================"
-              
-              timeout 30s curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
-                "https://api.render.com/v1/services/$SERVICE_ID/deploys/$DEPLOY_ID/logs" 2>/dev/null | \
-                jq -r '.[] | "\(.timestamp // "N/A") - \(.message // .text // .)"' 2>/dev/null | \
-                grep -i "error\|fail\|exception" | tail -n 30 || \
-                echo "Could not retrieve detailed logs"
-              
-              echo ""
-              echo "============================================"
-              echo "View complete logs at:"
-              echo "  https://dashboard.render.com/web/$SERVICE_ID/deploys/$DEPLOY_ID"
-              echo "============================================"
-              exit 1
-            fi
-            
-            if [ "$DEPLOY_STATUS" = "unknown" ]; then
-              echo ""
-              echo "WARNING: Unknown deploy status detected"
-              echo "Possible causes:"
-              echo "  - API response format changed"
-              echo "  - Deploy not yet started"
-              echo "  - Temporary API issue"
-              echo ""
-              echo "Full deploy object:"
-              echo "$DEPLOYS" | jq '.[0]' 2>/dev/null || echo "$DEPLOYS"
-            elif [[ "$DEPLOY_STATUS" =~ ^(building|deploying|pre_deploy)$ ]]; then
-              echo "Deploy in progress ($DEPLOY_STATUS)..."
-            else
-              echo "Current status: $DEPLOY_STATUS"
-            fi
-            
-            sleep 15
-          done
-          
-          echo ""
-          echo "============================================"
-          echo "TIMEOUT: Deploy exceeded 10 minutes"
-          echo "============================================"
-          echo "Last known status: $DEPLOY_STATUS"
-          echo "Last API response:"
-          echo "$DEPLOYS" | jq '.[0]' 2>/dev/null || echo "$DEPLOYS"
-          echo ""
-          echo "Verify manually at: https://dashboard.render.com/web/$SERVICE_ID"
-          echo "status=timeout" >> $GITHUB_OUTPUT
-          exit 1
+      - name: Deploy to Render with automatic retry and monitoring
+        uses: JorgeLNJunior/render-deploy@v1.4.7
+        with:
+          service_id: ${{ secrets.RENDER_SERVICE_ID }}
+          api_key: ${{ secrets.RENDER_API_KEY }}
+          clear_cache: true
+          wait_deploy: true
+          github_deployment: true
+          deployment_environment: 'production'
+          github_token: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Verify application health
-        if: steps.check_deploy.outputs.status == 'success'
         run: |
           echo "Verifying application responds correctly..."
           sleep 10
@@ -402,7 +168,7 @@ jobs:
           
           for i in {1..5}; do
             echo ""
-            echo "Attempt $i/5..."
+            echo "Health check attempt $i/5..."
             RESPONSE=$(curl -s -w "\n%{http_code}" "$HEALTH_URL" 2>&1)
             HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
             BODY=$(echo "$RESPONSE" | head -n-1)
@@ -426,7 +192,7 @@ jobs:
           done
           
           echo ""
-          echo "Application did not respond correctly"
+          echo "ERROR: Application did not respond correctly after 5 attempts"
           exit 1
 
   notify:
@@ -444,7 +210,6 @@ jobs:
           echo "============================================"
           echo "Docker Build: ${{ needs.build-and-push.result }}"
           echo "Render Deploy: ${{ needs.deploy-to-render.result }}"
-          echo "Deploy Attempts: ${{ needs.deploy-to-render.outputs.deploy_attempt || 'N/A' }}"
           echo "============================================"
           echo ""
           
@@ -459,9 +224,16 @@ jobs:
             echo "Health: https://epagal-backend-routing-latest.onrender.com/health"
             echo "API Docs: https://epagal-backend-routing-latest.onrender.com/docs"
             echo "Docker Hub: https://hub.docker.com/r/${{ env.DOCKER_IMAGE }}"
+            echo "Render Dashboard: https://dashboard.render.com/web/${{ secrets.RENDER_SERVICE_ID }}"
             echo "============================================"
           else
             echo "PIPELINE FAILED"
             echo ""
             echo "Review previous logs for details"
+            
+            if [ "${{ needs.deploy-to-render.result }}" == "failure" ]; then
+              echo ""
+              echo "Deployment failed. Check Render logs at:"
+              echo "https://dashboard.render.com/web/${{ secrets.RENDER_SERVICE_ID }}/logs"
+            fi
           fi
