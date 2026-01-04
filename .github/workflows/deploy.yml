@@ -137,14 +137,10 @@ jobs:
           
           echo "Step 1: Installing Render CLI..."
           echo "--------------------------------------------"
-          npm install -g @render/cli@latest || {
-            echo "Failed to install via npm, trying alternative method..."
-            curl -fsSL https://github.com/render-oss/cli/releases/latest/download/render-linux-x86_64 -o render
-            chmod +x render
-            sudo mv render /usr/local/bin/
-          }
+          npm install -g render-cli
           
           echo "Render CLI installed successfully"
+          render --version
           echo ""
           
           echo "Step 2: Fetching service information..."
@@ -193,14 +189,16 @@ jobs:
           
           echo "Step 4: Retrieving LIVE service logs using Render CLI..."
           echo "============================================"
+          echo "Configuring Render CLI authentication..."
+          
+          # Configure Render CLI with API token
+          echo "$RENDER_API_KEY" | render config set-token
+          
           echo "Fetching last 200 log lines from the service..."
           echo ""
           
-          # Set Render API key for CLI
-          export RENDER_API_KEY="$RENDER_API_KEY"
-          
           # Try to get logs using Render CLI with tail
-          if render logs $SERVICE_ID --tail 200 2>&1 | tee /tmp/render_logs.txt; then
+          if render logs -s $SERVICE_ID --tail 200 2>&1 | tee /tmp/render_logs.txt; then
             echo ""
             echo "============================================"
             echo "LOGS RETRIEVED SUCCESSFULLY"
