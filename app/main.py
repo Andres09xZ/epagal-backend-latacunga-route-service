@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 import os
 
 from app.database import engine, Base
-from app.routers import incidencias, rutas, auth, conductores, tasks, notifications, reports, reportes, operadores, horarios, tracking
+from app.routers import incidencias, rutas, auth, conductores, tasks, notifications, reports, reportes, operadores, horarios, tracking, geofencing
 
 # Crear tablas (no bloquear arranque si la DB no responde)
 try:
@@ -55,6 +55,7 @@ app.include_router(reportes.router, prefix="/api")
 app.include_router(operadores.router, prefix="/api")
 app.include_router(horarios.router, prefix="/api")
 app.include_router(tracking.router, prefix="/api")
+app.include_router(geofencing.router)  # Ya tiene prefix="/api/geofencing"
 
 # Montar archivos estáticos del dashboard
 dashboard_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dashboard")
@@ -73,7 +74,8 @@ def root():
             "Autenticación JWT",
             "Gestión de conductores",
             "Asignación automática",
-            "Sistema de horarios de recolección"
+            "Sistema de horarios de recolección",
+            "Geofencing y alertas en tiempo real"
         ],
         "docs": "/docs",
         "redoc": "/redoc",

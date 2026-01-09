@@ -16,3 +16,17 @@ pyproj==3.7.*            # Para conversiones de coordenadas UTM (3.7+ tiene whee
 passlib[bcrypt]==1.7.*   # Para hash de contraseñas con bcrypt
 python-jose[cryptography]==3.3.*  # Para JWT tokens
 email-validator==2.1.*   # Para validación de emails en Pydantic
+
+# WebSocket y Tracking GPS
+websockets==12.0.*       # Protocolo WebSocket async
+redis==5.0.*             # Cache en memoria para posiciones GPS
+python-socketio==5.10.*  # Socket.IO para compatibilidad bidireccional
+haversine==2.8.*         # Cálculo rápido de distancias GPS
+
+# Testing y BDD
+pytest==7.4.*            # Framework de testing
+pytest-bdd==6.1.*        # BDD con sintaxis Gherkin
+pytest-asyncio==0.21.*   # Para tests asíncronos de FastAPI
+httpx==0.25.*            # Cliente HTTP async para tests
+faker==20.1.*            # Generar datos de prueba realistas
+freezegun==1.4.*         # Mockear tiempo en tests

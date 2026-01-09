@@ -263,6 +263,7 @@ class Conductor(Base):
     # Relaciones
     usuario = relationship("Usuario", back_populates="conductor")
     asignaciones = relationship("AsignacionConductor", back_populates="conductor", cascade="all, delete-orphan")
+    alertas_geofencing = relationship("GeofenceAlert", back_populates="conductor", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Conductor(id={self.id}, nombre={self.nombre_completo}, estado={self.estado})>"
