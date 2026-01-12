@@ -1284,3 +1284,74 @@ tr:hover {
     }
 }
 
+/* Estilos adicionales para umbrales */
+.umbrales-container {
+    margin-bottom: 30px;
+}
+
+.umbrales-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 25px;
+    margin-bottom: 30px;
+}
+
+.umbral-card.warning {
+    border-color: var(--danger);
+    background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+}
+
+.umbral-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.umbral-header h3 {
+    margin: 0;
+    font-size: 20px;
+    color: var(--dark);
+}
+
+.umbral-body {
+    margin-top: 15px;
+}
+
+.stat-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+}
+
+.stat-item.success .stat-label,
+.stat-item.success .stat-value {
+    color: var(--success);
+    font-weight: 600;
+}
+
+.stat-item.danger .stat-label,
+.stat-item.danger .stat-value {
+    color: var(--danger);
+    font-weight: 600;
+}
+
+.stat-label {
+    color: var(--secondary);
+}
+
+.stat-value {
+    font-weight: 700;
+    font-size: 16px;
+    color: var(--dark);
+}
+
+.progress-fill.danger {
+    background: linear-gradient(90deg, var(--warning), var(--danger)) !important;
+}
+
+.progress-fill.success {
+    background: linear-gradient(90deg, var(--success), var(--info)) !important;
+}
+
+

@@ -29,45 +29,114 @@ def limpiar_base_datos():
             print("🗑️  Iniciando limpieza de base de datos...")
             
             # Eliminar en el orden correcto por las foreign keys
-            # 1. Eliminar asignaciones primero (depende de conductores y rutas)
-            result = conn.execute(text("DELETE FROM asignaciones_conductores"))
-            print(f"   ✓ Eliminadas {result.rowcount} asignaciones")
-            conn.commit()
             
-            # 2. Eliminar detalles de ruta (depende de rutas)
-            result = conn.execute(text("DELETE FROM rutas_detalle"))
-            print(f"   ✓ Eliminados {result.rowcount} detalles de ruta")
-            conn.commit()
+            # 1. Geofencing - Alertas y estadísticas
+            try:
+                result = conn.execute(text("DELETE FROM estadisticas_geofencing"))
+                conn.commit()
+                print(f"   ✓ Eliminadas {result.rowcount} estadísticas de geofencing")
+            except Exception as e:
+                conn.rollback()
+                print(f"   ⚠️  Tabla estadisticas_geofencing: {str(e)[:50]}")
             
-            # 3. Eliminar rutas (depende de incidencias)
-            result = conn.execute(text("DELETE FROM rutas_generadas"))
-            print(f"   ✓ Eliminadas {result.rowcount} rutas")
-            conn.commit()
+            try:
+                result = conn.execute(text("DELETE FROM geofence_alerts"))
+                conn.commit()
+                print(f"   ✓ Eliminadas {result.rowcount} alertas de geofencing")
+            except Exception as e:
+                conn.rollback()
+                print(f"   ⚠️  Tabla geofence_alerts: {str(e)[:50]}")
             
-            # 4. Eliminar incidencias (independiente)
-            result = conn.execute(text("DELETE FROM incidencias"))
-            print(f"   ✓ Eliminadas {result.rowcount} incidencias")
-            conn.commit()
+            try:
+                result = conn.execute(text("DELETE FROM historial_posiciones"))
+                conn.commit()
+                print(f"   ✓ Eliminadas {result.rowcount} posiciones GPS")
+            except Exception as e:
+                conn.rollback()
+                print(f"   ⚠️  Tabla historial_posiciones: {str(e)[:50]}")
             
-            # 5. Eliminar conductores (depende de usuarios)
-            result = conn.execute(text("DELETE FROM conductores"))
-            print(f"   ✓ Eliminados {result.rowcount} conductores")
-            conn.commit()
+            # 2. Horarios
+            try:
+                result = conn.execute(text("DELETE FROM horarios_conductores"))
+                conn.commit()
+                print(f"   ✓ Eliminados {result.rowcount} horarios de conductores")
+            except Exception as e:
+                conn.rollback()
+                print(f"   ⚠️  Tabla horarios_conductores: {str(e)[:50]}")
             
-            # 6. Eliminar usuarios no admin
-            result = conn.execute(text("DELETE FROM usuarios WHERE tipo_usuario != 'admin'"))
-            print(f"   ✓ Eliminados {result.rowcount} usuarios no admin")
-            conn.commit()
+            # 3. Asignaciones (depende de conductores y rutas)
+            try:
+                result = conn.execute(text("DELETE FROM asignaciones_conductores"))
+                conn.commit()
+                print(f"   ✓ Eliminadas {result.rowcount} asignaciones")
+            except Exception as e:
+                conn.rollback()
+                print(f"   ⚠️  Error en asignaciones: {str(e)[:50]}")
+            
+            # 4. Detalles de ruta (depende de rutas)
+            try:
+                result = conn.execute(text("DELETE FROM rutas_detalle"))
+                conn.commit()
+                print(f"   ✓ Eliminados {result.rowcount} detalles de ruta")
+            except Exception as e:
+                conn.rollback()
+                print(f"   ⚠️  Error en rutas_detalle: {str(e)[:50]}")
+            
+            # 5. Rutas (depende de incidencias)
+            try:
+                result = conn.execute(text("DELETE FROM rutas_generadas"))
+                conn.commit()
+                print(f"   ✓ Eliminadas {result.rowcount} rutas")
+            except Exception as e:
+                conn.rollback()
+                print(f"   ⚠️  Error en rutas_generadas: {str(e)[:50]}")
+            
+            # 6. Incidencias (independiente)
+            try:
+                result = conn.execute(text("DELETE FROM incidencias"))
+                conn.commit()
+                print(f"   ✓ Eliminadas {result.rowcount} incidencias")
+            except Exception as e:
+                conn.rollback()
+                print(f"   ⚠️  Error en incidencias: {str(e)[:50]}")
+            
+            # 7. Conductores (depende de usuarios)
+            try:
+                result = conn.execute(text("DELETE FROM conductores"))
+                conn.commit()
+                print(f"   ✓ Eliminados {result.rowcount} conductores")
+            except Exception as e:
+                conn.rollback()
+                print(f"   ⚠️  Error en conductores: {str(e)[:50]}")
+            
+            # 8. Usuarios no admin
+            try:
+                result = conn.execute(text("DELETE FROM usuarios WHERE tipo_usuario != 'admin'"))
+                conn.commit()
+                print(f"   ✓ Eliminados {result.rowcount} usuarios no admin")
+            except Exception as e:
+                conn.rollback()
+                print(f"   ⚠️  Error en usuarios: {str(e)[:50]}")
             
             # Reiniciar secuencias
-            conn.execute(text("ALTER SEQUENCE IF EXISTS asignaciones_conductores_id_seq RESTART WITH 1"))
-            conn.execute(text("ALTER SEQUENCE IF EXISTS rutas_detalle_id_seq RESTART WITH 1"))
-            conn.execute(text("ALTER SEQUENCE IF EXISTS rutas_generadas_id_seq RESTART WITH 1"))
-            conn.execute(text("ALTER SEQUENCE IF EXISTS incidencias_id_seq RESTART WITH 1"))
-            conn.execute(text("ALTER SEQUENCE IF EXISTS conductores_id_seq RESTART WITH 1"))
-            conn.commit()
+            print("\n🔄 Reiniciando secuencias...")
+            try:
+                conn.execute(text("ALTER SEQUENCE IF EXISTS estadisticas_geofencing_id_seq RESTART WITH 1"))
+                conn.execute(text("ALTER SEQUENCE IF EXISTS geofence_alerts_id_seq RESTART WITH 1"))
+                conn.execute(text("ALTER SEQUENCE IF EXISTS historial_posiciones_id_seq RESTART WITH 1"))
+                conn.execute(text("ALTER SEQUENCE IF EXISTS horarios_conductores_id_seq RESTART WITH 1"))
+                conn.execute(text("ALTER SEQUENCE IF EXISTS asignaciones_conductores_id_seq RESTART WITH 1"))
+                conn.execute(text("ALTER SEQUENCE IF EXISTS rutas_detalle_id_seq RESTART WITH 1"))
+                conn.execute(text("ALTER SEQUENCE IF EXISTS rutas_generadas_id_seq RESTART WITH 1"))
+                conn.execute(text("ALTER SEQUENCE IF EXISTS incidencias_id_seq RESTART WITH 1"))
+                conn.execute(text("ALTER SEQUENCE IF EXISTS conductores_id_seq RESTART WITH 1"))
+                conn.commit()
+                print("   ✓ Secuencias reiniciadas")
+            except Exception as e:
+                conn.rollback()
+                print(f"   ⚠️  Error al reiniciar secuencias: {str(e)[:50]}")
             
-            print("\n✅ Limpieza completada exitosamente!")
+            print("\n✅ Limpieza completada!")
             
             # Verificar usuario admin
             result = conn.execute(text(

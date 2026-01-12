@@ -1,5 +1,5 @@
 // Configuración
-const API_URL = 'http://localhost:9000';  // Backend FastAPI
+const API_URL = 'http://localhost:8000';  // Backend FastAPI
 let authToken = null;
 let currentUser = null;
 let selectedIncidenciaId = null;
@@ -117,6 +117,9 @@ async function loadIncidencias() {
     container.innerHTML = '<div class="loading">Cargando incidencias...</div>';
     
     try {
+        // Cargar umbrales primero
+        await loadUmbrales();
+        
         const estado = document.getElementById('filterEstado').value;
         const zona = document.getElementById('filterZona').value;
         
@@ -192,6 +195,103 @@ async function loadIncidencias() {
         
     } catch (error) {
         container.innerHTML = `<div class="error-message active">Error al cargar incidencias: ${error.message}</div>`;
+    }
+}
+
+// Función para cargar umbrales por zona
+async function loadUmbrales() {
+    const container = document.getElementById('umbralesSection');
+    
+    try {
+        const response = await fetch(`${API_URL}/api/incidencias/umbrales`);
+        const data = await response.json();
+        
+        const oriental = data.oriental || {};
+        const occidental = data.occidental || {};
+        const umbral = data.umbral || 20;
+        
+        // Determinar clases de estado
+        const getStatusClass = (supera) => supera ? 'danger' : 'success';
+        const getStatusIcon = (supera) => supera ? '🚨' : '✅';
+        
+        container.innerHTML = `
+            <div class="umbrales-cards">
+                <!-- Umbral Oriental -->
+                <div class="umbral-card ${oriental.supera_umbral ? 'warning' : ''}">
+                    <div class="umbral-header">
+                        <h3>🌅 Zona Oriental</h3>
+                        <span class="badge badge-${getStatusClass(oriental.supera_umbral)}">
+                            ${getStatusIcon(oriental.supera_umbral)} ${oriental.supera_umbral ? 'Umbral Superado' : 'Normal'}
+                        </span>
+                    </div>
+                    <div class="umbral-body">
+                        <div class="umbral-progress">
+                            <div class="progress-bar">
+                                <div class="progress-fill ${oriental.supera_umbral ? 'danger' : 'success'}" 
+                                     style="width: ${Math.min(oriental.porcentaje, 100)}%">
+                                </div>
+                            </div>
+                            <div class="progress-label">
+                                ${oriental.gravedad_acumulada || 0} / ${umbral} (${oriental.porcentaje || 0}%)
+                            </div>
+                        </div>
+                        <div class="umbral-stats">
+                            <div class="stat-item">
+                                <span class="stat-label">Gravedad Acumulada:</span>
+                                <span class="stat-value">${oriental.gravedad_acumulada || 0}</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Incidencias Validadas:</span>
+                                <span class="stat-value">${oriental.incidencias_validadas || 0}</span>
+                            </div>
+                            <div class="stat-item ${!oriental.supera_umbral ? 'success' : 'danger'}">
+                                <span class="stat-label">${oriental.supera_umbral ? 'Exceso:' : 'Falta:'}</span>
+                                <span class="stat-value">${Math.abs(oriental.falta || 0)}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Umbral Occidental -->
+                <div class="umbral-card ${occidental.supera_umbral ? 'warning' : ''}">
+                    <div class="umbral-header">
+                        <h3>🌄 Zona Occidental</h3>
+                        <span class="badge badge-${getStatusClass(occidental.supera_umbral)}">
+                            ${getStatusIcon(occidental.supera_umbral)} ${occidental.supera_umbral ? 'Umbral Superado' : 'Normal'}
+                        </span>
+                    </div>
+                    <div class="umbral-body">
+                        <div class="umbral-progress">
+                            <div class="progress-bar">
+                                <div class="progress-fill ${occidental.supera_umbral ? 'danger' : 'success'}" 
+                                     style="width: ${Math.min(occidental.porcentaje, 100)}%">
+                                </div>
+                            </div>
+                            <div class="progress-label">
+                                ${occidental.gravedad_acumulada || 0} / ${umbral} (${occidental.porcentaje || 0}%)
+                            </div>
+                        </div>
+                        <div class="umbral-stats">
+                            <div class="stat-item">
+                                <span class="stat-label">Gravedad Acumulada:</span>
+                                <span class="stat-value">${occidental.gravedad_acumulada || 0}</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Incidencias Validadas:</span>
+                                <span class="stat-value">${occidental.incidencias_validadas || 0}</span>
+                            </div>
+                            <div class="stat-item ${!occidental.supera_umbral ? 'success' : 'danger'}">
+                                <span class="stat-label">${occidental.supera_umbral ? 'Exceso:' : 'Falta:'}</span>
+                                <span class="stat-value">${Math.abs(occidental.falta || 0)}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+    } catch (error) {
+        container.innerHTML = `<div class="error-message active">Error al cargar umbrales: ${error.message}</div>`;
     }
 }
 
@@ -667,6 +767,8 @@ document.getElementById('createConductorForm').addEventListener('submit', async 
     };
     
     try {
+        console.log('Datos a enviar:', formData);
+        
         const response = await fetch(`${API_URL}/api/conductores/`, {
             method: 'POST',
             headers: {
@@ -678,16 +780,26 @@ document.getElementById('createConductorForm').addEventListener('submit', async 
         
         if (!response.ok) {
             const error = await response.json();
+            console.error('Error del servidor:', error);
+            
+            // Manejar errores de validación de Pydantic
+            if (error.detail && Array.isArray(error.detail)) {
+                const errores = error.detail.map(e => `${e.loc.join('.')}: ${e.msg}`).join('\n');
+                throw new Error(errores);
+            }
+            
             throw new Error(error.detail || 'Error al crear conductor');
         }
         
         const result = await response.json();
+        console.log('Conductor creado:', result);
         
         closeModal('createConductorModal');
         alert('✅ Conductor creado exitosamente');
         loadConductores();
         
     } catch (error) {
+        console.error('Error completo:', error);
         showError('createConductorError', error.message);
     }
 });

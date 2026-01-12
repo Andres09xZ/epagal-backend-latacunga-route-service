@@ -4,45 +4,20 @@ Router de incidencias para FastAPI
 from fastapi import APIRouter, Depends, HTTPException, status  # type: ignore[import]
 from sqlalchemy.orm import Session  # type: ignore[import]
 from sqlalchemy import func  # type: ignore[import]
-from pydantic import BaseModel  # type: ignore[import]
 from typing import Annotated, List, Optional
 from datetime import datetime
 from geoalchemy2.elements import WKTElement  # type: ignore[import]
 from app.database import get_db
 from app.models import Incidencia, Config
+from app.schemas.incidencias import (
+    IncidenciaCreate, 
+    IncidenciaResponse, 
+    IncidenciaUpdate,
+    TipoIncidencia
+)
+from app.services.incidencia_service import IncidenciaService
 
 router = APIRouter(prefix="/incidencias", tags=["incidencias"])
-
-
-class IncidenciaResponse(BaseModel):
-    id: int
-    tipo: str
-    gravedad: int
-    descripcion: str
-    foto_url: Optional[str] = None
-    lat: Optional[float] = None
-    lon: Optional[float] = None
-    zona: str
-    estado: str
-    ventana_inicio: Optional[datetime] = None
-    ventana_fin: Optional[datetime] = None
-    reportado_en: datetime
-    usuario_id: Optional[int] = None
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class IncidenciaCreate(BaseModel):
-    tipo: str
-    gravedad: int = 1
-    descripcion: str
-    foto_url: Optional[str] = None
-    lat: float  # Obligatorio
-    lon: float  # Obligatorio
-    zona: str
-    usuario_id: int = 1  # Default para testing
 
 
 @router.get("/stats")
@@ -155,7 +130,11 @@ async def crear_incidencia(
     incidencia: IncidenciaCreate,
     db: Annotated[Session, Depends(get_db)]
 ):
-    """Crear nueva incidencia"""
+    """
+    Crear nueva incidencia con autodetección de zona y gravedad
+    - La zona se determina automáticamente según las coordenadas
+    - La gravedad se asigna según el tipo de incidencia
+    """
     # Validar que lat y lon no sean None
     if incidencia.lat is None or incidencia.lon is None:
         raise HTTPException(
@@ -163,18 +142,29 @@ async def crear_incidencia(
             detail="Las coordenadas (lat, lon) son obligatorias"
         )
     
+    # Autodetectar zona basándose en coordenadas
+    zona = incidencia.determinar_zona()
+    
+    # Determinar gravedad según tipo de incidencia
+    gravedad_map = {
+        TipoIncidencia.ACOPIO: 1,
+        TipoIncidencia.ZONA_CRITICA: 3,
+        TipoIncidencia.ANIMAL_MUERTO: 5
+    }
+    gravedad = gravedad_map.get(incidencia.tipo, 1)
+    
     # Crear el objeto de geometría a partir de lat/lon
     geom = WKTElement(f'POINT({incidencia.lon} {incidencia.lat})', srid=4326)
     
     new_incident = Incidencia(
-        tipo=incidencia.tipo,
-        gravedad=incidencia.gravedad,
+        tipo=incidencia.tipo.value,
+        gravedad=gravedad,
         descripcion=incidencia.descripcion,
         foto_url=incidencia.foto_url,
         lat=incidencia.lat,
         lon=incidencia.lon,
-        geom=geom,  # Agregar la geometría
-        zona=incidencia.zona,
+        geom=geom,
+        zona=zona,
         usuario_id=incidencia.usuario_id,
         estado="pendiente",
         reportado_en=datetime.utcnow(),
@@ -233,7 +223,13 @@ async def validar_incidencia(
     incidencia_id: int,
     db: Annotated[Session, Depends(get_db)]
 ):
-    """Validar una incidencia (cambiar estado de pendiente a validada)"""
+    """
+    Validar una incidencia (cambiar estado de pendiente a validada)
+    
+    Si al validar se supera el umbral de gravedad de la zona,
+    se genera automáticamente una ruta optimizada.
+    """
+    # Buscar incidencia
     incidencia = db.query(Incidencia).filter(Incidencia.id == incidencia_id).first()
     if not incidencia:
         raise HTTPException(status_code=404, detail="Incidencia no encontrada")
@@ -244,9 +240,28 @@ async def validar_incidencia(
             detail=f"No se puede validar una incidencia en estado '{incidencia.estado}'"
         )
     
-    incidencia.estado = "validada"
-    incidencia.updated_at = datetime.utcnow()
-    
-    db.commit()
-    db.refresh(incidencia)
-    return incidencia
+    try:
+        # Usar el servicio que incluye la lógica de generación automática
+        incidencia_validada, ruta_generada = IncidenciaService.validar_incidencia(
+            db, 
+            incidencia_id,
+            generar_ruta_auto=True
+        )
+        
+        # Log si se generó ruta
+        if ruta_generada:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(
+                f"✅ Incidencia {incidencia_id} validada. "
+                f"Se generó automáticamente ruta ID {ruta_generada.id} para zona {ruta_generada.zona}"
+            )
+        
+        return incidencia_validada
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al validar incidencia: {str(e)}"
+        )

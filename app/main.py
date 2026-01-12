@@ -30,6 +30,10 @@ app = FastAPI(
 # Configuración CORS - MÁS PERMISIVA para desarrollo
 # En producción deberías restringir esto
 allowed_origins = [
+    "http://localhost:8080",      # Dashboard principal
+    "http://127.0.0.1:8080",      # Dashboard (IP)
+    "http://localhost:3000",      # Frontend alternativo
+    "http://127.0.0.1:3000",      # Frontend alternativo (IP)
     "*",  # Permitir todos los orígenes (solo para desarrollo)
 ]
 

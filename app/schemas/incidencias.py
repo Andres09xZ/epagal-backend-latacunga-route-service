@@ -59,6 +59,15 @@ class IncidenciaCreate(BaseModel):
                 f"Longitud {v} fuera del rango de Latacunga ({LON_MIN} a {LON_MAX})"
             )
         return v
+    
+    def determinar_zona(self) -> str:
+        """
+        Determina la zona basándose en las coordenadas
+        Zona Oriental: longitud > -78.6191 (este de Latacunga)
+        Zona Occidental: longitud <= -78.6191 (oeste de Latacunga)
+        """
+        LONGITUD_DIVISORIA = -78.6191
+        return "oriental" if self.lon > LONGITUD_DIVISORIA else "occidental"
 
     class Config:
         json_schema_extra = {
