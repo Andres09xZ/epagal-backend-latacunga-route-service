@@ -22,7 +22,7 @@ router = APIRouter(prefix="/incidencias", tags=["incidencias"])
 
 @router.get("/stats")
 async def estadisticas(db: Annotated[Session, Depends(get_db)]):
-    """Estadísticas de incidencias"""
+    """Estadísticas de incidencias completas"""
     total = db.query(Incidencia).count()
     
     # Contar por estado
@@ -40,11 +40,20 @@ async def estadisticas(db: Annotated[Session, Depends(get_db)]):
         if zona_val:
             count = db.query(Incidencia).filter(Incidencia.zona == zona_val).count()
             por_zona[zona_val] = count
+    
+    # Contar por tipo
+    tipos = db.query(Incidencia.tipo).distinct().all()
+    por_tipo = {}
+    for (tipo_val,) in tipos:
+        if tipo_val:
+            count = db.query(Incidencia).filter(Incidencia.tipo == tipo_val).count()
+            por_tipo[tipo_val] = count
 
     return {
         "total": total,
         "por_estado": por_estado,
         "por_zona": por_zona,
+        "por_tipo": por_tipo,
     }
 
 
