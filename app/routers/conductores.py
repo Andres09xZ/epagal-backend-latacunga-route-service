@@ -66,7 +66,7 @@ async def listar_conductores(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Optional[Usuario] = None
 ):
     """
     Lista todos los conductores del sistema
@@ -116,7 +116,7 @@ async def obtener_conductores_disponibles(
 async def obtener_conductor(
     conductor_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Optional[Usuario] = None
 ):
     """
     Obtiene información detallada de un conductor específico
