@@ -8,6 +8,10 @@ services:
     plan: free
     region: oregon
     healthCheckPath: /health
+    postBuild: |
+      if [ "$RENDER_GIT_BRANCH" = "main" ]; then
+        python seed_data.py || echo "Seed data already loaded or not needed"
+      fi
     envVars:
       - key: DB_URL
         sync: false
