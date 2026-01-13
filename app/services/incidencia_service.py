@@ -8,9 +8,13 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Tuple
 import pyproj
 from pyproj import Transformer
+import logging
 
-from app.models import Incidencia, Config, RutaGenerada
+from app.models import Incidencia, Config, RutaGenerada, RutaDetalle
 from app.schemas.incidencias import IncidenciaCreate, TipoIncidencia
+
+# Configurar logger
+logger = logging.getLogger(__name__)
 
 
 # Configuración de proyecciones
@@ -322,70 +326,222 @@ class IncidenciaService:
         return suma_gravedad > umbral, suma_gravedad
 
     @staticmethod
+    def calcular_distancia_haversine(
+        lat1: float, lon1: float,
+        lat2: float, lon2: float
+    ) -> float:
+        """
+        Calcula distancia en metros entre dos coordenadas usando fórmula de Haversine
+        
+        Args:
+            lat1, lon1: Coordenadas del primer punto
+            lat2, lon2: Coordenadas del segundo punto
+            
+        Returns:
+            float: Distancia en metros
+        """
+        from math import radians, sin, cos, sqrt, atan2
+        
+        R = 6371000  # Radio de la Tierra en metros
+        lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
+        dlat = lat2 - lat1
+        dlon = lon2 - lon1
+        a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+        c = 2 * atan2(sqrt(a), sqrt(1-a))
+        return R * c
+
+    @staticmethod
     def validar_incidencia(
         db: Session,
         incidencia_id: int,
         generar_ruta_auto: bool = True
     ) -> Tuple[Incidencia, Optional[RutaGenerada]]:
         """
-        Marca una incidencia como 'validada' (control por administrador)
-
-        Si generar_ruta_auto es True, tras validar se verifica el umbral y se
-        puede generar una ruta automáticamente (mismo comportamiento que al crear
-        rutas pero solo considerando incidencias validadas).
+        Valida una incidencia y gestiona la generación automática de rutas
+        
+        LÓGICA MEJORADA PARA EVITAR SOLAPAMIENTO:
+        1. Valida la incidencia (pendiente → validada)
+        2. Verifica si hay rutas PLANEADAS en la zona
+        3. Si hay rutas planeadas:
+           - Calcula distancia a cada punto de cada ruta
+           - Si está CERCA (< 500m): NO genera nueva ruta, solo registra
+           - Si está LEJOS (≥ 500m): Acumula y verifica umbral para nueva ruta
+        4. Si NO hay rutas planeadas: Verifica umbral y genera si supera
+        
+        Args:
+            db: Sesión de base de datos
+            incidencia_id: ID de la incidencia a validar
+            generar_ruta_auto: Si True, verifica umbral y genera ruta automáticamente
+            
+        Returns:
+            Tuple[incidencia_validada, ruta_generada_o_None]
         """
+        # 1. Obtener y validar incidencia
         incidencia = db.query(Incidencia).filter(Incidencia.id == incidencia_id).first()
         if not incidencia:
             raise ValueError(f"Incidencia {incidencia_id} no encontrada")
+        
+        if incidencia.estado != 'pendiente':
+            raise ValueError(
+                f"No se puede validar una incidencia en estado '{incidencia.estado}'"
+            )
 
-        # Actualizar estado a 'validada'
+        # Cambiar estado a validada
         incidencia.estado = 'validada'
         db.commit()
         db.refresh(incidencia)
+        
+        logger.info(f"✅ Incidencia #{incidencia.id} validada exitosamente")
 
         ruta_generada = None
-        if generar_ruta_auto:
-            # Importar aquí para evitar dependencia circular
-            from app.services.ruta_service import RutaService
-            from app.services.notificacion_service import NotificacionService
+        if not generar_ruta_auto:
+            return incidencia, None
+            
+        # Importar servicios
+        from app.services.ruta_service import RutaService
+        from app.services.notificacion_service import NotificacionService
 
-            ruta_service = RutaService()
-            zona = incidencia.zona
+        ruta_service = RutaService()
+        zona = incidencia.zona
 
-            # Verificar si hay rutas planeadas en la zona
-            rutas_planeadas = ruta_service.verificar_rutas_planeadas_zona(db, zona)
+        # 2. Verificar si hay rutas PLANEADAS en la zona
+        rutas_planeadas = ruta_service.verificar_rutas_planeadas_zona(db, zona)
 
-            if rutas_planeadas:
-                # Evaluar si se necesita recalcular (incidencia validada puede ser crítica)
-                debe_recalcular = ruta_service.evaluar_necesidad_recalculo(db, zona, incidencia.gravedad)
-                if debe_recalcular:
-                    ruta_generada = ruta_service.recalcular_ruta_zona(
-                        db,
-                        zona,
-                        motivo=f"Incidencia validada {incidencia.tipo} (gravedad {incidencia.gravedad})"
+        if rutas_planeadas:
+            # Hay rutas planeadas: verificar si la incidencia está cerca de alguna
+            logger.info(
+                f"📋 Existen {len(rutas_planeadas)} ruta(s) planeada(s) en zona {zona}. "
+                f"Verificando cercanía con incidencia #{incidencia.id}..."
+            )
+            
+            RADIO_CERCANIA = 500  # 500 metros
+            esta_cerca = False
+            ruta_mas_cercana = None
+            distancia_minima = float('inf')
+            
+            # Verificar distancia a cada ruta planeada
+            for ruta in rutas_planeadas:
+                # Obtener detalles de incidencias de esta ruta
+                detalles = db.query(RutaDetalle).filter(
+                    RutaDetalle.ruta_id == ruta.id,
+                    RutaDetalle.tipo_punto == 'incidencia'
+                ).all()
+                
+                for detalle in detalles:
+                    distancia = IncidenciaService.calcular_distancia_haversine(
+                        incidencia.lat, incidencia.lon,
+                        detalle.lat, detalle.lon
                     )
-                    if ruta_generada:
-                        NotificacionService.notificar_nueva_ruta(
-                            ruta_generada.id,
-                            zona,
-                            ruta_generada.camiones_usados,
-                            ruta_generada.suma_gravedad,
-                            es_recalculo=True
-                        )
+                    
+                    if distancia < distancia_minima:
+                        distancia_minima = distancia
+                        ruta_mas_cercana = ruta
+                    
+                    if distancia < RADIO_CERCANIA:
+                        esta_cerca = True
+            
+            if esta_cerca and ruta_mas_cercana:
+                # La incidencia está CERCA de una ruta existente
+                logger.info(
+                    f"📍 Incidencia #{incidencia.id} está a {distancia_minima:.0f}m "
+                    f"de la Ruta #{ruta_mas_cercana.id}. "
+                    f"⚠️ NO se genera nueva ruta para evitar solapamiento. "
+                    f"La incidencia queda validada para futuras rutas."
+                )
+                # No hacemos nada más, la incidencia queda en estado 'validada'
+                return incidencia, None
+            
+            # La incidencia está LEJOS de todas las rutas existentes
+            logger.info(
+                f"📍 Incidencia #{incidencia.id} está LEJOS de todas las rutas planeadas "
+                f"(distancia mínima: {distancia_minima:.0f}m > {RADIO_CERCANIA}m). "
+                f"Verificando si incidencias lejanas superan umbral..."
+            )
+            
+            # CLAVE: Solo contar incidencias validadas que NO están en rutas planeadas
+            # Obtener IDs de incidencias ya asignadas a rutas planeadas
+            ids_en_rutas = set()
+            for ruta in rutas_planeadas:
+                detalles = db.query(RutaDetalle).filter(
+                    RutaDetalle.ruta_id == ruta.id,
+                    RutaDetalle.tipo_punto == 'incidencia'
+                ).all()
+                ids_en_rutas.update(d.incidencia_id for d in detalles if d.incidencia_id)
+            
+            # Calcular suma solo con incidencias validadas NO asignadas a rutas
+            incidencias_disponibles = db.query(Incidencia).filter(
+                Incidencia.zona == zona,
+                Incidencia.estado == 'validada',
+                ~Incidencia.id.in_(ids_en_rutas) if ids_en_rutas else True
+            ).all()
+            
+            suma_gravedad = sum(inc.gravedad for inc in incidencias_disponibles)
+            
+            # Obtener umbral para comparación
+            config = db.query(Config).filter(Config.clave == 'umbral_gravedad').first()
+            umbral = int(config.valor) if config else 20
+            supera = suma_gravedad > umbral
+            
+            logger.info(
+                f"📊 Umbral zona {zona}: "
+                f"suma={suma_gravedad} (de {len(incidencias_disponibles)} incidencias disponibles, "
+                f"excluyendo {len(ids_en_rutas)} ya en rutas), "
+                f"umbral={umbral}, supera={supera}"
+            )
+            
+            if supera:
+                # Generar NUEVA ruta independiente
+                logger.info(f"🚨 ¡UMBRAL SUPERADO! Generando nueva ruta en zona {zona}...")
+                ruta_generada = ruta_service.generar_ruta_automatica(db, zona)
+                
+                if ruta_generada:
+                    logger.info(
+                        f"✅ Nueva Ruta #{ruta_generada.id} generada con "
+                        f"{ruta_generada.camiones_usados} camión(es)"
+                    )
+                    NotificacionService.notificar_nueva_ruta(
+                        ruta_generada.id,
+                        zona,
+                        ruta_generada.camiones_usados,
+                        ruta_generada.suma_gravedad,
+                        es_recalculo=False
+                    )
             else:
-                # No hay rutas planeadas: verificar umbral con incidencias validadas
-                suma_gravedad = IncidenciaService.calcular_suma_gravedad_zona(db, zona)
-                supera, umbral = ruta_service.verificar_supera_umbral(db, zona, suma_gravedad)
-                if supera:
-                    ruta_generada = ruta_service.generar_ruta_automatica(db, zona)
-                    if ruta_generada:
-                        NotificacionService.notificar_nueva_ruta(
-                            ruta_generada.id,
-                            zona,
-                            ruta_generada.camiones_usados,
-                            ruta_generada.suma_gravedad,
-                            es_recalculo=False
-                        )
+                logger.info(
+                    f"ℹ️ Umbral no superado. Faltan {umbral - suma_gravedad} puntos "
+                    f"para generar nueva ruta."
+                )
+        else:
+            # NO hay rutas planeadas: verificar umbral normalmente
+            logger.info(f"📋 NO hay rutas planeadas en zona {zona}. Verificando umbral...")
+            
+            suma_gravedad = IncidenciaService.calcular_suma_gravedad_zona(db, zona)
+            supera, umbral = ruta_service.verificar_supera_umbral(db, zona, suma_gravedad)
+            
+            logger.info(
+                f"� Umbral zona {zona}: suma={suma_gravedad}, umbral={umbral}, supera={supera}"
+            )
+            
+            if supera:
+                logger.info(f"🚨 ¡UMBRAL SUPERADO! Generando primera ruta en zona {zona}...")
+                ruta_generada = ruta_service.generar_ruta_automatica(db, zona)
+                
+                if ruta_generada:
+                    logger.info(
+                        f"✅ Ruta #{ruta_generada.id} generada con "
+                        f"{ruta_generada.camiones_usados} camión(es)"
+                    )
+                    NotificacionService.notificar_nueva_ruta(
+                        ruta_generada.id,
+                        zona,
+                        ruta_generada.camiones_usados,
+                        ruta_generada.suma_gravedad,
+                        es_recalculo=False
+                    )
+            else:
+                logger.info(
+                    f"ℹ️ Umbral no superado. Faltan {umbral - suma_gravedad} puntos."
+                )
 
         return incidencia, ruta_generada
 

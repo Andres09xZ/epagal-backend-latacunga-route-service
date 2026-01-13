@@ -1354,4 +1354,82 @@ tr:hover {
     background: linear-gradient(90deg, var(--success), var(--info)) !important;
 }
 
+/* ==================== MAPA DE RUTAS ==================== */
+
+.ruta-map-container {
+    margin: 20px 0;
+    padding: 15px;
+    background: var(--light);
+    border-radius: 8px;
+}
+
+.ruta-map-container h4 {
+    margin-bottom: 10px;
+    color: var(--dark);
+    font-size: 18px;
+}
+
+#rutaMap {
+    width: 100%;
+    height: 400px;
+    border-radius: 8px;
+    border: 2px solid var(--border);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* Estilos para los popups de Leaflet */
+.leaflet-popup-content-wrapper {
+    border-radius: 8px;
+    box-shadow: 0 3px 14px rgba(0,0,0,0.4);
+}
+
+.leaflet-popup-content {
+    margin: 10px;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+/* Estilos para marcadores personalizados */
+.custom-marker {
+    background: transparent;
+    border: none;
+}
+
+/* Info message para cuando no hay polilínea */
+.info-message {
+    padding: 15px;
+    background: var(--warning);
+    color: white;
+    border-radius: 8px;
+    text-align: center;
+    margin: 15px 0;
+    font-weight: 500;
+}
+
+/* Mejora de estilo para puntos de ruta */
+.point-item {
+    padding: 10px;
+    margin-bottom: 10px;
+    background: var(--light);
+    border-radius: 8px;
+    border-left: 4px solid var(--primary);
+}
+
+.point-item:hover {
+    background: rgba(37, 99, 235, 0.05);
+}
+
+.point-number {
+    display: inline-block;
+    background: var(--primary);
+    color: white;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 28px;
+    font-weight: bold;
+    margin-right: 10px;
+    font-size: 14px;
+}
 

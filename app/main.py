@@ -9,16 +9,29 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import os
+import logging
+
+# Configurar logging para que se muestre en consola
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 from app.database import engine, Base
 from app.routers import incidencias, rutas, auth, conductores, tasks, notifications, reports, reportes, operadores, horarios, tracking, geofencing
 
+logger.info("🚀 Iniciando aplicación FastAPI...")
+
 # Crear tablas (no bloquear arranque si la DB no responde)
 try:
     Base.metadata.create_all(bind=engine)
+    logger.info("✅ Tablas de base de datos verificadas")
 except Exception as e:
-    import logging
-    logging.warning("DB unavailable during startup: %s", e)
+    logger.warning("⚠️ DB unavailable during startup: %s", e)
 
 app = FastAPI(
     title="Sistema de Gestión de Incidencias - EPAGAL Latacunga",

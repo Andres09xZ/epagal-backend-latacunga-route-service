@@ -639,15 +639,24 @@ async function showRutaDetalle(rutaId) {
                 </div>
             </div>
             
+            ${ruta.polyline ? `
+            <div class="ruta-map-container">
+                <h4>🗺️ Visualización de Ruta</h4>
+                <div id="rutaMap" style="width: 100%; height: 400px; border-radius: 8px; margin: 10px 0;"></div>
+            </div>
+            ` : '<div class="info-message">⚠️ No hay polilínea disponible para esta ruta</div>'}
+            
             ${ruta.puntos && ruta.puntos.length > 0 ? `
             <div class="ruta-points">
-                <h4>Puntos de la Ruta (${ruta.puntos.length}):</h4>
+                <h4>📍 Puntos de la Ruta (${ruta.puntos.length}):</h4>
                 ${ruta.puntos.slice(0, 10).map(punto => `
                     <div class="point-item">
                         <div class="point-number">${punto.secuencia}</div>
                         <div>
                             <strong>${formatTipoPunto(punto.tipo_punto)}</strong>
                             ${punto.incidencia_id ? ` - Incidencia #${punto.incidencia_id} (${formatTipo(punto.tipo_incidencia)})` : ''}
+                            <br>
+                            <small style="color: var(--secondary);">📍 ${punto.lat.toFixed(4)}, ${punto.lon.toFixed(4)}</small>
                         </div>
                     </div>
                 `).join('')}
@@ -657,13 +666,13 @@ async function showRutaDetalle(rutaId) {
             
             ${ruta.asignaciones && ruta.asignaciones.length > 0 ? `
             <div class="ruta-points">
-                <h4>Asignaciones:</h4>
+                <h4>👷 Asignaciones:</h4>
                 ${ruta.asignaciones.map(asig => `
                     <div class="point-item">
                         <div>
                             <strong>${asig.conductor_nombre || 'Conductor'}</strong>
                             <br>
-                            <small>Camión: ${asig.camion_id} (${asig.camion_tipo})</small>
+                            <small>🚛 Camión: ${asig.camion_id} (${asig.camion_tipo})</small>
                             <br>
                             <small>Estado: <span class="badge badge-${asig.estado}">${formatEstado(asig.estado)}</span></small>
                             ${asig.fecha_inicio ? `<br><small>⏰ Inicio: ${formatDate(asig.fecha_inicio)}</small>` : ''}
@@ -674,9 +683,131 @@ async function showRutaDetalle(rutaId) {
             ` : ''}
         `;
         
+        // Si hay polilínea, renderizar el mapa con Leaflet
+        if (ruta.polyline && ruta.puntos && ruta.puntos.length > 0) {
+            renderRutaMap(ruta);
+        }
+        
     } catch (error) {
         contentDiv.innerHTML = `<div class="error-message active">Error al cargar detalles: ${error.message}</div>`;
     }
+}
+
+// Función para renderizar el mapa con la polilínea de la ruta
+function renderRutaMap(ruta) {
+    // Esperar a que el elemento del mapa esté en el DOM
+    setTimeout(() => {
+        const mapElement = document.getElementById('rutaMap');
+        if (!mapElement) {
+            console.error('Elemento del mapa no encontrado');
+            return;
+        }
+        
+        // Calcular el centro del mapa (usar primer punto)
+        const centerLat = ruta.puntos[0].lat;
+        const centerLon = ruta.puntos[0].lon;
+        
+        // Inicializar mapa Leaflet
+        const map = L.map('rutaMap').setView([centerLat, centerLon], 13);
+        
+        // Agregar capa de OpenStreetMap
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors',
+            maxZoom: 19
+        }).addTo(map);
+        
+        // Decodificar polilínea (formato Google Polyline)
+        const decodedCoords = decodePolyline(ruta.polyline);
+        
+        // Dibujar la polilínea en el mapa
+        const polyline = L.polyline(decodedCoords, {
+            color: '#2196F3',
+            weight: 5,
+            opacity: 0.7
+        }).addTo(map);
+        
+        // Ajustar el zoom para mostrar toda la ruta
+        map.fitBounds(polyline.getBounds(), { padding: [50, 50] });
+        
+        // Agregar marcadores para los puntos
+        ruta.puntos.forEach((punto, index) => {
+            let icon, color;
+            
+            if (punto.tipo_punto === 'deposito') {
+                color = 'green';
+                icon = '🏢';
+            } else if (punto.tipo_punto === 'botadero') {
+                color = 'red';
+                icon = '🗑️';
+            } else {
+                color = 'blue';
+                icon = '📍';
+            }
+            
+            const marker = L.marker([punto.lat, punto.lon], {
+                icon: L.divIcon({
+                    className: 'custom-marker',
+                    html: `<div style="background: ${color}; color: white; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; font-size: 16px; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);">${icon}</div>`,
+                    iconSize: [30, 30],
+                    iconAnchor: [15, 15]
+                })
+            }).addTo(map);
+            
+            // Popup con información
+            let popupContent = `<strong>${formatTipoPunto(punto.tipo_punto)}</strong><br>`;
+            popupContent += `Orden: ${punto.secuencia}<br>`;
+            
+            if (punto.incidencia_id) {
+                popupContent += `Incidencia #${punto.incidencia_id}<br>`;
+                popupContent += `Tipo: ${formatTipo(punto.tipo_incidencia)}<br>`;
+                popupContent += `Gravedad: ${punto.gravedad}<br>`;
+                if (punto.descripcion) {
+                    popupContent += `${punto.descripcion}<br>`;
+                }
+            }
+            
+            marker.bindPopup(popupContent);
+        });
+        
+    }, 100); // Pequeño delay para asegurar que el DOM esté listo
+}
+
+// Función para decodificar polilínea de Google (formato comprimido)
+function decodePolyline(encoded) {
+    const coords = [];
+    let index = 0;
+    let lat = 0;
+    let lng = 0;
+    
+    while (index < encoded.length) {
+        let b, shift = 0, result = 0;
+        
+        // Decodificar latitud
+        do {
+            b = encoded.charCodeAt(index++) - 63;
+            result |= (b & 0x1f) << shift;
+            shift += 5;
+        } while (b >= 0x20);
+        
+        const dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+        lat += dlat;
+        
+        // Decodificar longitud
+        shift = 0;
+        result = 0;
+        do {
+            b = encoded.charCodeAt(index++) - 63;
+            result |= (b & 0x1f) << shift;
+            shift += 5;
+        } while (b >= 0x20);
+        
+        const dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+        lng += dlng;
+        
+        coords.push([lat / 1e5, lng / 1e5]);
+    }
+    
+    return coords;
 }
 
 // ==================== CONDUCTORES ====================
