@@ -127,14 +127,6 @@ jobs:
           DEPLOY_STATUS="${{ steps.render_deploy.outcome }}"
           
           echo "============================================"
-          if [ "$DEPLOY_STATUS" == "success" ]; then
-            echo "DEPLOYMENT SUCCESSFUL - RETRIEVING LOGS"
-          else
-            echo "DEPLOYMENT FAILED - RETRIEVING DIAGNOSTIC INFORMATION"
-          fi
-          echo "============================================"
-          echo ""
-          
           echo "Step 1: Fetching service information..."
           echo "--------------------------------------------"
           SERVICE_INFO=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
@@ -195,7 +187,7 @@ jobs:
           LOGS_BODY=$(echo "$LOGS_RESPONSE" | head -n-1)
           
           if [ "$LOGS_HTTP_CODE" = "200" ] && [ ! -z "$LOGS_BODY" ] && [ "$LOGS_BODY" != "404 page not found" ]; then
-            echo "✓ Logs retrieved successfully from logs endpoint!"
+            echo "Logs retrieved successfully from logs endpoint!"
             echo "============================================"
             echo "SERVICE LOGS (Last 200 entries):"
             echo "============================================"
@@ -208,11 +200,11 @@ jobs:
             echo "============================================"
             echo "$LOGS_BODY" | jq -r '.[] | select(.level == "error" or .level == "ERROR" or (.message | test("error|Error|ERROR|exception|Exception|traceback|Traceback|ModuleNotFoundError|ImportError"; "i"))) | "\(.timestamp) [\(.level)]: \(.message)"' 2>/dev/null || echo "No errors found in structured logs"
           else
-            echo "✗ Logs endpoint returned HTTP $LOGS_HTTP_CODE"
+            echo "- Logs endpoint returned HTTP $LOGS_HTTP_CODE"
             
             # Method 2: Try events endpoint
             echo ""
-            echo "→ Trying events endpoint..."
+            echo "Trying events endpoint..."
             EVENTS_RESPONSE=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer $RENDER_API_KEY" \
               "https://api.render.com/v1/services/$SERVICE_ID/events?limit=100")
             
@@ -220,18 +212,18 @@ jobs:
             EVENTS_BODY=$(echo "$EVENTS_RESPONSE" | head -n-1)
             
             if [ "$EVENTS_HTTP_CODE" = "200" ] && [ ! -z "$EVENTS_BODY" ] && [ "$EVENTS_BODY" != "404 page not found" ]; then
-              echo "✓ Events retrieved successfully!"
+              echo "Events retrieved successfully!"
               echo "============================================"
               echo "SERVICE EVENTS:"
               echo "============================================"
               echo "$EVENTS_BODY" | jq -r '.[] | "\(.timestamp // .createdAt) - \(.type): \(.message // .description)"' 2>/dev/null || echo "$EVENTS_BODY"
             else
-              echo "✗ Events endpoint returned HTTP $EVENTS_HTTP_CODE"
+              echo "- Events endpoint returned HTTP $EVENTS_HTTP_CODE"
               
               # Method 3: Try to get deploy-specific logs
               if [ ! -z "$LATEST_DEPLOY_ID" ]; then
                 echo ""
-                echo "→ Trying deploy-specific logs for $LATEST_DEPLOY_ID..."
+                echo "Trying deploy-specific logs for $LATEST_DEPLOY_ID..."
                 DEPLOY_LOGS_RESPONSE=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer $RENDER_API_KEY" \
                   "https://api.render.com/v1/services/$SERVICE_ID/deploys/$LATEST_DEPLOY_ID/logs")
                 
@@ -239,19 +231,19 @@ jobs:
                 DEPLOY_LOGS_BODY=$(echo "$DEPLOY_LOGS_RESPONSE" | head -n-1)
                 
                 if [ "$DEPLOY_LOGS_HTTP_CODE" = "200" ] && [ ! -z "$DEPLOY_LOGS_BODY" ] && [ "$DEPLOY_LOGS_BODY" != "404 page not found" ]; then
-                  echo "✓ Deploy logs retrieved successfully!"
+                  echo "Deploy logs retrieved successfully!"
                   echo "============================================"
                   echo "DEPLOY LOGS:"
                   echo "============================================"
                   echo "$DEPLOY_LOGS_BODY"
                 else
-                  echo "✗ Deploy logs returned HTTP $DEPLOY_LOGS_HTTP_CODE"
+                  echo "- Deploy logs returned HTTP $DEPLOY_LOGS_HTTP_CODE"
                 fi
               fi
               
               # Method 4: Check service health directly
               echo ""
-              echo "→ Checking service health..."
+              echo "Checking service health..."
               SERVICE_URL=$(echo "$SERVICE_INFO" | jq -r '.serviceDetails.url' 2>/dev/null)
               
               if [ ! -z "$SERVICE_URL" ] && [ "$SERVICE_URL" != "null" ]; then
@@ -262,12 +254,12 @@ jobs:
                 
                 echo "Health check HTTP code: $HEALTH_HTTP_CODE"
                 if [ "$HEALTH_HTTP_CODE" = "200" ]; then
-                  echo "✓ Service is healthy!"
+                  echo "- Service is healthy!"
                   echo "$HEALTH_BODY"
                   
                   # If health check passes, test critical endpoints
                   echo ""
-                  echo "→ Testing critical API endpoints..."
+                  echo "Testing critical API endpoints..."
                   echo ""
                   
                   # Test 1: GET incidencias
@@ -278,7 +270,7 @@ jobs:
                   if [ "$INCIDENCIAS_CODE" = "200" ]; then
                     echo "  ✓ Endpoint working correctly"
                   else
-                    echo "  ✗ Endpoint failed"
+                    echo "  - Endpoint failed"
                     echo "  Response: $(echo "$INCIDENCIAS_RESPONSE" | head -n-1 | head -c 500)"
                   fi
                   echo ""
@@ -289,9 +281,9 @@ jobs:
                   DOCS_CODE=$(echo "$DOCS_RESPONSE" | tail -n1)
                   echo "  Response code: $DOCS_CODE"
                   if [ "$DOCS_CODE" = "200" ]; then
-                    echo "  ✓ API documentation accessible"
+                    echo "  + API documentation accessible"
                   else
-                    echo "  ✗ Documentation not accessible"
+                    echo "  - Documentation not accessible"
                   fi
                   echo ""
                   
@@ -299,13 +291,13 @@ jobs:
                   echo "Test 3: Database connectivity check"
                   DB_CHECK=$(curl -s "$SERVICE_URL/api/incidencias/" | jq 'type' 2>/dev/null || echo "error")
                   if [ "$DB_CHECK" = "array" ] || [ "$DB_CHECK" = "object" ]; then
-                    echo "  ✓ Database connection working (API returned valid JSON)"
+                    echo "  + Database connection working (API returned valid JSON)"
                   else
-                    echo "  ✗ Database might have issues (unexpected response format)"
+                    echo "  - Database might have issues (unexpected response format)"
                   fi
                   
                 else
-                  echo "✗ Service health check failed"
+                  echo "- Service health check failed"
                   echo "$HEALTH_BODY"
                   echo ""
                   echo "Possible causes:"
@@ -367,7 +359,7 @@ jobs:
           echo ""
           
           echo "============================================"
-          echo "📊 DEPLOYMENT SUMMARY"
+          echo "DEPLOYMENT SUMMARY"
           echo "============================================"
           echo ""
           echo "Service Information:"
@@ -385,27 +377,27 @@ jobs:
           echo ""
           
           if [ "$HEALTH_HTTP_CODE" = "200" ]; then
-            echo "✅ SERVICE STATUS: HEALTHY AND OPERATIONAL"
+            echo "SERVICE STATUS: HEALTHY AND OPERATIONAL"
             echo ""
             echo "Your API is accessible at:"
-            echo "  🌐 Base URL: $SERVICE_URL"
-            echo "  📚 Docs: $SERVICE_URL/docs"
-            echo "  💚 Health: $SERVICE_URL/health"
-            echo "  📝 Incidencias: $SERVICE_URL/api/incidencias/"
+            echo "  Base URL: $SERVICE_URL"
+            echo "  Docs: $SERVICE_URL/docs"
+            echo "  Health: $SERVICE_URL/health"
+            echo "  Incidencias: $SERVICE_URL/api/incidencias/"
           else
-            echo "❌ SERVICE STATUS: UNHEALTHY"
+            echo "SERVICE STATUS: UNHEALTHY"
             echo ""
             echo "The service deployed but is not responding correctly."
             echo "This usually means there's a runtime error."
             echo ""
-            echo "🔍 To debug, check the Render dashboard logs:"
+            echo "To debug, check the Render dashboard logs:"
             echo "  https://dashboard.render.com/web/$SERVICE_ID/logs"
             echo ""
             echo "Common issues to look for:"
-            echo "  • ModuleNotFoundError - Missing Python dependencies"
-            echo "  • ImportError - Package compatibility issues"  
-            echo "  • Database connection errors"
-            echo "  • Environment variable issues"
+            echo "  - ModuleNotFoundError - Missing Python dependencies"
+            echo "  - ImportError - Package compatibility issues"  
+            echo "  - Database connection errors"
+            echo "  - Environment variable issues"
           fi
           echo ""
           echo "============================================"
