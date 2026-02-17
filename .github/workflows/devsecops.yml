@@ -643,13 +643,17 @@ jobs:
           try:
               with open('.gitignore') as f:
                   gitignore = f.read()
-              required = ['.env', '__pycache__', '*.pyc']
-              for pattern in required:
-                  if pattern in gitignore:
-                      print(f'  ✓ .gitignore contiene {pattern}')
+              required = {
+                  '.env': ['.env'],
+                  '__pycache__': ['__pycache__'],
+                  '*.pyc': ['*.pyc', '*.py[cod]'],
+              }
+              for label, patterns in required.items():
+                  if any(p in gitignore for p in patterns):
+                      print(f'  ✓ .gitignore contiene {label}')
                       checks_passed += 1
                   else:
-                      print(f'  ✗ .gitignore NO contiene {pattern}')
+                      print(f'  ✗ .gitignore NO contiene {label}')
                       checks_failed += 1
           except FileNotFoundError:
               print('  ✗ .gitignore no encontrado')
