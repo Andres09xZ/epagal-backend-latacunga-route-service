@@ -481,6 +481,11 @@ jobs:
   testing:
     name: "Security Testing & Validation"
     runs-on: ubuntu-latest
+    env:
+      # Variables ficticias para CI (no se conecta a BD real)
+      DB_URL: "postgresql://ci_user:ci_pass@localhost:5432/ci_test_db"
+      JWT_SECRET: "ci-testing-secret-key-not-real"
+      SECRET_KEY: "ci-testing-secret-key-not-real"
     steps:
       - name: Checkout código
         uses: actions/checkout@v4

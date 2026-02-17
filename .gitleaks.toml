@@ -13,6 +13,7 @@ paths = [
     '''database/.*\.sql''',
     '''migrations/.*\.sql''',
     '''insertar_puntos_fijos\.sql''',
+    '''\.github/workflows/.*\.yml''',
 ]
 # Ignorar commits anteriores al fix de seguridad (secretos ya removidos del código)
 commits = [
