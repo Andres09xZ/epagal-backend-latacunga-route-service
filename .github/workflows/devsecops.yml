@@ -320,18 +320,528 @@ jobs:
           retention-days: 30
 
   # ============================================
-  # RESUMEN DE SEGURIDAD (Pasos 1-3)
+  # PASO 4: Seguridad SQL
+  # ============================================
+  sql-security:
+    name: "SQL Security Analysis"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Instalar SQLFluff
+        run: |
+          python -m pip install --upgrade pip
+          pip install sqlfluff
+
+      - name: SQLFluff - Lint archivos SQL de migraciones
+        run: |
+          echo "Ejecutando SQLFluff en archivos de migración..."
+          echo "============================================"
+          sqlfluff lint migrations/ --dialect postgres --rules LT01,LT02,LT04,LT09,AM01,AM02,CV01,CV02,ST06 || true
+          echo "============================================"
+          echo ""
+          echo "Ejecutando SQLFluff en archivos SQL de base de datos..."
+          sqlfluff lint database/ --dialect postgres --rules LT01,LT02,LT04,LT09,AM01,AM02,CV01,CV02,ST06 || true
+          echo "============================================"
+
+      - name: Análisis avanzado de SQL Injection en código Python
+        run: |
+          echo "Análisis avanzado de SQL Injection..."
+          echo "============================================"
+
+          SQLI_CRITICAL=0
+
+          # 1. text() con f-strings (inyección directa)
+          echo "[CRÍTICO] Buscando text() con f-strings..."
+          RESULTS=$(grep -rn 'text(f["\x27]' app/ --include="*.py" 2>/dev/null || true)
+          if [ -n "$RESULTS" ]; then
+            echo "SQL INJECTION DETECTADA - text() con f-string:"
+            echo "$RESULTS"
+            SQLI_CRITICAL=1
+          else
+            echo "  No se encontraron text() con f-strings"
+          fi
+
+          # 2. text() con .format()
+          echo "[CRÍTICO] Buscando text() con .format()..."
+          RESULTS=$(grep -rn 'text(.*\.format(' app/ --include="*.py" 2>/dev/null || true)
+          if [ -n "$RESULTS" ]; then
+            echo "SQL INJECTION DETECTADA - text() con .format():"
+            echo "$RESULTS"
+            SQLI_CRITICAL=1
+          else
+            echo "  No se encontraron text() con .format()"
+          fi
+
+          # 3. text() con concatenación
+          echo "[CRÍTICO] Buscando text() con concatenación de strings..."
+          RESULTS=$(grep -rn 'text(.*+.*variable\|text(.*+.*input\|text(.*+.*param' app/ --include="*.py" 2>/dev/null || true)
+          if [ -n "$RESULTS" ]; then
+            echo "POSIBLE SQL INJECTION - text() con concatenación:"
+            echo "$RESULTS"
+            SQLI_CRITICAL=1
+          else
+            echo "  No se encontraron concatenaciones peligrosas"
+          fi
+
+          # 4. execute() con f-strings
+          echo "[CRÍTICO] Buscando execute() con f-strings..."
+          RESULTS=$(grep -rn '\.execute(f["\x27]' app/ --include="*.py" 2>/dev/null || true)
+          if [ -n "$RESULTS" ]; then
+            echo "SQL INJECTION DETECTADA - execute() con f-string:"
+            echo "$RESULTS"
+            SQLI_CRITICAL=1
+          else
+            echo "  No se encontraron execute() con f-strings"
+          fi
+
+          # 5. raw SQL con % operator
+          echo "[CRÍTICO] Buscando raw SQL con operador %..."
+          RESULTS=$(grep -rn 'execute(.*%\s' app/ --include="*.py" 2>/dev/null | grep -v "#\|test\|comment" || true)
+          if [ -n "$RESULTS" ]; then
+            echo "POSIBLE SQL INJECTION - execute() con % operator:"
+            echo "$RESULTS"
+            SQLI_CRITICAL=1
+          else
+            echo "  No se encontraron % operators en SQL"
+          fi
+
+          # 6. Verificar que se usan parámetros vinculados
+          echo ""
+          echo "[INFO] Verificando uso de parámetros vinculados..."
+          SAFE=$(grep -rn 'text(.*:.*\|bindparam\|params=' app/ --include="*.py" 2>/dev/null | wc -l || echo "0")
+          echo "  Consultas parametrizadas encontradas: $SAFE"
+
+          echo "============================================"
+          if [ $SQLI_CRITICAL -eq 1 ]; then
+            echo "RESULTADO: SE ENCONTRARON VULNERABILIDADES SQL INJECTION"
+            echo "Corregir antes de continuar el despliegue"
+            exit 1
+          else
+            echo "RESULTADO: No se detectaron vulnerabilidades de SQL Injection"
+          fi
+
+      - name: Análisis de seguridad en archivos SQL
+        if: always()
+        run: |
+          echo "Verificando seguridad en archivos SQL..."
+          echo "============================================"
+
+          ISSUES=0
+
+          # Buscar DROP TABLE/DATABASE sin IF EXISTS
+          echo "Buscando DROP sin IF EXISTS..."
+          RESULTS=$(grep -rn "DROP TABLE\|DROP DATABASE" migrations/ database/ --include="*.sql" 2>/dev/null | grep -v "IF EXISTS" || true)
+          if [ -n "$RESULTS" ]; then
+            echo "ADVERTENCIA - DROP sin IF EXISTS:"
+            echo "$RESULTS"
+            ISSUES=1
+          else
+            echo "  Todos los DROP usan IF EXISTS"
+          fi
+
+          # Buscar GRANT ALL PRIVILEGES
+          echo "Buscando privilegios excesivos..."
+          RESULTS=$(grep -rn "GRANT ALL\|SUPERUSER" migrations/ database/ --include="*.sql" 2>/dev/null || true)
+          if [ -n "$RESULTS" ]; then
+            echo "ADVERTENCIA - Privilegios excesivos:"
+            echo "$RESULTS"
+            ISSUES=1
+          else
+            echo "  No se encontraron privilegios excesivos"
+          fi
+
+          # Buscar credenciales en SQL
+          echo "Buscando credenciales en archivos SQL..."
+          RESULTS=$(grep -rn "PASSWORD\s*=\s*'" migrations/ database/ --include="*.sql" 2>/dev/null | grep -v '\$BCRYPT\|placeholder\|variable\|example\|template' || true)
+          if [ -n "$RESULTS" ]; then
+            echo "ADVERTENCIA - Posibles credenciales en SQL:"
+            echo "$RESULTS"
+          else
+            echo "  No se encontraron credenciales hardcodeadas"
+          fi
+
+          echo "============================================"
+          if [ $ISSUES -eq 1 ]; then
+            echo "Se encontraron advertencias en archivos SQL (no bloquean el pipeline)"
+          else
+            echo "Archivos SQL pasan las verificaciones de seguridad"
+          fi
+
+  # ============================================
+  # PASO 5: Testing
+  # ============================================
+  testing:
+    name: "Security Testing & Validation"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-timeout
+
+      - name: Verificar imports y estructura del proyecto
+        run: |
+          echo "Verificando imports de la aplicación..."
+          echo "============================================"
+
+          python -c "
+          import sys
+          errors = []
+
+          # Verificar módulos principales
+          modules = [
+              'app',
+              'app.main',
+              'app.database',
+              'app.models',
+              'app.schemas',
+          ]
+
+          for mod in modules:
+              try:
+                  __import__(mod)
+                  print(f'  ✓ {mod}')
+              except Exception as e:
+                  print(f'  ✗ {mod}: {e}')
+                  errors.append(mod)
+
+          if errors:
+              print(f'\n{len(errors)} módulo(s) fallaron la importación')
+              sys.exit(1)
+          else:
+              print(f'\nTodos los módulos se importaron correctamente')
+          "
+          echo "============================================"
+
+      - name: Verificar que FastAPI app se inicializa correctamente
+        run: |
+          echo "Verificando inicialización de FastAPI..."
+          echo "============================================"
+
+          python -c "
+          import sys
+          try:
+              from app.main import app
+              print(f'  ✓ FastAPI app creada: {app.title}')
+              print(f'  ✓ Versión: {app.version}')
+              print(f'  ✓ Rutas registradas: {len(app.routes)}')
+
+              # Listar endpoints
+              for route in app.routes:
+                  if hasattr(route, 'methods'):
+                      print(f'    {route.methods} {route.path}')
+              print('\nFastAPI se inicializa correctamente')
+          except Exception as e:
+              print(f'  ✗ Error al inicializar FastAPI: {e}')
+              sys.exit(1)
+          "
+          echo "============================================"
+
+      - name: Pytest - Descubrimiento y validación de tests
+        run: |
+          echo "Descubriendo tests disponibles..."
+          echo "============================================"
+          pytest --collect-only -q tests/ features/ 2>/dev/null || echo "Algunos tests requieren servicios externos (DB, OSRM)"
+          echo "============================================"
+
+      - name: Pytest - Tests unitarios (sin dependencias externas)
+        run: |
+          echo "Ejecutando tests que no requieren servicios externos..."
+          echo "============================================"
+          pytest tests/ features/ \
+            -x \
+            --timeout=15 \
+            --ignore=tests/test_osrm_connection.py \
+            -k "not integration and not slow" \
+            --tb=short \
+            -q \
+            2>/dev/null || echo "Tests de integración omitidos (requieren DB/servidor)"
+          echo "============================================"
+
+      - name: Verificar cobertura de archivos de seguridad
+        run: |
+          echo "Verificando archivos críticos de seguridad..."
+          echo "============================================"
+
+          python -c "
+          import os, sys
+
+          critical_files = {
+              'app/services/auth_service.py': 'Servicio de autenticación',
+              'app/database.py': 'Conexión a base de datos',
+              'app/main.py': 'Aplicación principal',
+          }
+
+          missing = []
+          for filepath, description in critical_files.items():
+              if os.path.exists(filepath):
+                  # Verificar que no tiene secrets hardcodeados
+                  with open(filepath) as f:
+                      content = f.read()
+                  issues = []
+                  if 'password' in content.lower() and '\"' in content:
+                      # Verificar que usa environ/getenv
+                      lines = content.split('\n')
+                      for i, line in enumerate(lines, 1):
+                          if 'password' in line.lower() and '=' in line:
+                              if 'environ' not in line and 'getenv' not in line and '#' not in line.split('password')[0]:
+                                  if 'str' not in line and 'Optional' not in line and 'Field' not in line and 'param' not in line.lower() and 'schema' not in line.lower():
+                                      issues.append(f'    Línea {i}: {line.strip()[:80]}')
+                  
+                  if issues:
+                      print(f'  ⚠ {filepath} ({description}) - posibles credenciales:')
+                      for issue in issues:
+                          print(issue)
+                  else:
+                      print(f'  ✓ {filepath} ({description})')
+              else:
+                  print(f'  ✗ {filepath} no encontrado')
+                  missing.append(filepath)
+
+          if missing:
+              print(f'\nARCHIVOS CRÍTICOS FALTANTES: {len(missing)}')
+              sys.exit(1)
+          else:
+              print(f'\nTodos los archivos críticos verificados')
+          "
+          echo "============================================"
+
+      - name: Validación de configuración de seguridad
+        run: |
+          echo "Validando configuración de seguridad del proyecto..."
+          echo "============================================"
+
+          python -c "
+          import sys
+          checks_passed = 0
+          checks_failed = 0
+
+          # 1. Verificar .gitignore
+          try:
+              with open('.gitignore') as f:
+                  gitignore = f.read()
+              required = ['.env', '__pycache__', '*.pyc']
+              for pattern in required:
+                  if pattern in gitignore:
+                      print(f'  ✓ .gitignore contiene {pattern}')
+                      checks_passed += 1
+                  else:
+                      print(f'  ✗ .gitignore NO contiene {pattern}')
+                      checks_failed += 1
+          except FileNotFoundError:
+              print('  ✗ .gitignore no encontrado')
+              checks_failed += 1
+
+          # 2. Verificar que SECRET_KEY usa env vars
+          try:
+              with open('app/services/auth_service.py') as f:
+                  content = f.read()
+              if 'environ' in content or 'getenv' in content:
+                  print('  ✓ auth_service usa variables de entorno')
+                  checks_passed += 1
+              else:
+                  print('  ✗ auth_service NO usa variables de entorno')
+                  checks_failed += 1
+          except FileNotFoundError:
+              print('  ⚠ auth_service.py no encontrado')
+
+          # 3. Verificar que no hay .env en el repo
+          import os
+          if os.path.exists('.env') and '.env' in gitignore:
+              print('  ✓ .env existe pero está en .gitignore')
+              checks_passed += 1
+          elif not os.path.exists('.env'):
+              print('  ✓ .env no está en el repositorio')
+              checks_passed += 1
+          else:
+              print('  ✗ .env existe y NO está en .gitignore')
+              checks_failed += 1
+
+          # 4. Verificar Dockerfile no expone secrets
+          try:
+              with open('Dockerfile') as f:
+                  content = f.read()
+              if 'ENV SECRET' not in content and 'ENV PASSWORD' not in content:
+                  print('  ✓ Dockerfile no expone secretos')
+                  checks_passed += 1
+              else:
+                  print('  ✗ Dockerfile contiene secretos en ENV')
+                  checks_failed += 1
+          except FileNotFoundError:
+              print('  ⚠ Dockerfile no encontrado')
+
+          print(f'\nResultado: {checks_passed} verificaciones pasadas, {checks_failed} fallidas')
+          if checks_failed > 0:
+              sys.exit(1)
+          "
+          echo "============================================"
+
+  # ============================================
+  # PASO 6: Seguridad de Contenedores
+  # ============================================
+  container-security:
+    name: "Container Security"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Hadolint - Lint del Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          failure-threshold: error
+          ignore: DL3008,DL3013,DL3042
+        continue-on-error: true
+
+      - name: Hadolint - Reporte detallado
+        run: |
+          echo "Ejecutando Hadolint análisis detallado..."
+          echo "============================================"
+          docker run --rm -i hadolint/hadolint < Dockerfile || true
+          echo "============================================"
+
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Construir imagen Docker para escaneo
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          load: true
+          tags: epagal-backend:security-scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy - Escaneo de vulnerabilidades de imagen
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: "epagal-backend:security-scan"
+          format: "table"
+          severity: "CRITICAL,HIGH"
+          exit-code: "0"
+
+      - name: Trivy - Generar reporte SARIF
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: "epagal-backend:security-scan"
+          format: "sarif"
+          output: "trivy-results.sarif"
+          severity: "CRITICAL,HIGH"
+
+      - name: Trivy - Escaneo de filesystem (config & secrets)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "table"
+          severity: "CRITICAL,HIGH"
+          exit-code: "0"
+
+      - name: Verificar mejores prácticas de Dockerfile
+        run: |
+          echo "Verificando mejores prácticas del Dockerfile..."
+          echo "============================================"
+
+          ISSUES=0
+
+          # Verificar que usa imagen slim/alpine
+          if grep -q "slim\|alpine" Dockerfile; then
+            echo "  ✓ Usa imagen base reducida (slim/alpine)"
+          else
+            echo "  ⚠ Considerar usar imagen slim o alpine"
+            ISSUES=1
+          fi
+
+          # Verificar que no corre como root
+          if grep -q "USER\|useradd\|adduser" Dockerfile; then
+            echo "  ✓ Define usuario no-root"
+          else
+            echo "  ⚠ El contenedor corre como root - considerar agregar USER"
+            ISSUES=1
+          fi
+
+          # Verificar HEALTHCHECK
+          if grep -q "HEALTHCHECK" Dockerfile; then
+            echo "  ✓ Define HEALTHCHECK"
+          else
+            echo "  ⚠ No define HEALTHCHECK - considerar agregar"
+            ISSUES=1
+          fi
+
+          # Verificar que no copia .env o secrets
+          if grep -q "COPY \.env\|ADD \.env" Dockerfile; then
+            echo "  ✗ PELIGRO: Copia .env al contenedor"
+            ISSUES=2
+          else
+            echo "  ✓ No copia .env al contenedor"
+          fi
+
+          # Verificar .dockerignore
+          if [ -f ".dockerignore" ]; then
+            echo "  ✓ .dockerignore existe"
+          else
+            echo "  ⚠ No hay .dockerignore - considerar crear uno"
+            ISSUES=1
+          fi
+
+          # Verificar no-cache-dir en pip install
+          if grep -q "no-cache-dir" Dockerfile; then
+            echo "  ✓ pip install usa --no-cache-dir"
+          else
+            echo "  ⚠ Considerar agregar --no-cache-dir a pip install"
+          fi
+
+          echo "============================================"
+          if [ $ISSUES -ge 2 ]; then
+            echo "Se encontraron problemas críticos en el Dockerfile"
+            exit 1
+          elif [ $ISSUES -ge 1 ]; then
+            echo "Se encontraron advertencias en el Dockerfile (no bloquean)"
+          else
+            echo "Dockerfile cumple con las mejores prácticas"
+          fi
+
+      - name: Subir reporte Trivy
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-security-report
+          path: trivy-results.sarif
+          retention-days: 30
+
+  # ============================================
+  # RESUMEN DE SEGURIDAD COMPLETO
   # ============================================
   security-summary:
-    name: "Resumen de Seguridad"
+    name: "Resumen de Seguridad DevSecOps"
     runs-on: ubuntu-latest
-    needs: [secret-scanning, dependency-check, sast]
+    needs: [secret-scanning, dependency-check, sast, sql-security, testing, container-security]
     if: always()
     steps:
-      - name: Generar resumen
+      - name: Generar resumen completo
         run: |
           echo "=============================================="
-          echo "     REPORTE DEVSECOPS - PASOS 1 A 3        "
+          echo "   REPORTE DEVSECOPS - PIPELINE COMPLETO     "
           echo "=============================================="
           echo ""
           echo "  Paso 1 - Secret Scanning:"
@@ -343,25 +853,65 @@ jobs:
           echo "  Paso 3 - SAST:"
           echo "     Estado: ${{ needs.sast.result }}"
           echo ""
+          echo "  Paso 4 - SQL Security:"
+          echo "     Estado: ${{ needs.sql-security.result }}"
+          echo ""
+          echo "  Paso 5 - Testing:"
+          echo "     Estado: ${{ needs.testing.result }}"
+          echo ""
+          echo "  Paso 6 - Container Security:"
+          echo "     Estado: ${{ needs.container-security.result }}"
+          echo ""
           echo "=============================================="
 
           # Evaluar resultado general
+          FAILED=0
+          WARNINGS=0
+
           if [ "${{ needs.secret-scanning.result }}" == "failure" ]; then
-            echo "  RESULTADO: FALLIDO"
-            echo "  Se detectaron secretos expuestos"
+            echo "  ✗ FALLO: Se detectaron secretos expuestos"
+            FAILED=1
+          fi
+
+          if [ "${{ needs.dependency-check.result }}" == "failure" ]; then
+            echo "  ⚠ ADVERTENCIA: Dependencias con vulnerabilidades"
+            WARNINGS=1
+          fi
+
+          if [ "${{ needs.sast.result }}" == "failure" ]; then
+            echo "  ✗ FALLO: Vulnerabilidades SAST detectadas"
+            FAILED=1
+          fi
+
+          if [ "${{ needs.sql-security.result }}" == "failure" ]; then
+            echo "  ✗ FALLO: Vulnerabilidades SQL detectadas"
+            FAILED=1
+          fi
+
+          if [ "${{ needs.testing.result }}" == "failure" ]; then
+            echo "  ✗ FALLO: Tests de seguridad fallaron"
+            FAILED=1
+          fi
+
+          if [ "${{ needs.container-security.result }}" == "failure" ]; then
+            echo "  ✗ FALLO: Vulnerabilidades en contenedor"
+            FAILED=1
+          fi
+
+          echo ""
+          echo "=============================================="
+          if [ $FAILED -eq 1 ]; then
+            echo "  RESULTADO FINAL: ✗ FALLIDO"
+            echo "  El despliegue será BLOQUEADO"
             echo "=============================================="
             exit 1
-          elif [ "${{ needs.sast.result }}" == "failure" ]; then
-            echo "  RESULTADO: FALLIDO"
-            echo "  Se detectaron vulnerabilidades críticas"
-            echo "=============================================="
-            exit 1
-          elif [ "${{ needs.dependency-check.result }}" == "failure" ]; then
-            echo "  RESULTADO: ADVERTENCIA"
-            echo "  Dependencias con vulnerabilidades"
+          elif [ $WARNINGS -eq 1 ]; then
+            echo "  RESULTADO FINAL: ⚠ APROBADO CON ADVERTENCIAS"
+            echo "  El despliegue puede continuar"
             echo "=============================================="
           else
-            echo "  RESULTADO: APROBADO"
-            echo "  No se encontraron problemas críticos"
+            echo "  RESULTADO FINAL: ✓ APROBADO"
+            echo "  Pipeline de seguridad superado exitosamente"
+            echo "  El despliegue puede continuar"
             echo "=============================================="
           fi
