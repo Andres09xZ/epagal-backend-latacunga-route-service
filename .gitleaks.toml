@@ -14,6 +14,24 @@ paths = [
     '''migrations/.*\.sql''',
     '''insertar_puntos_fijos\.sql''',
 ]
+# Ignorar commits anteriores al fix de seguridad (secretos ya removidos del código)
+commits = [
+    '''6d38c47''',
+    '''2da3623''',
+    '''f11d95f''',
+    '''d489ea6''',
+    '''e2042ba''',
+    '''375492c''',
+    '''06ee323''',
+    '''b1c9bac''',
+    '''0225df5''',
+    '''6d0b33b''',
+    '''278d829''',
+    '''76b6766''',
+    '''fd22cbc''',
+    '''e7a3b36''',
+    '''c0751bb''',
+]
 
 # Reglas personalizadas para el proyecto
 [[rules]]

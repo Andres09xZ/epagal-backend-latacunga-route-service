@@ -143,9 +143,8 @@ def health_check():
     osrm_status = "ok"
     try:
         osrm_url = os.getenv("OSRM_URL", "http://osrm:5000")
-        # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
         response = requests.get(
-            f"{osrm_url}/route/v1/driving/-78.617,-0.933;-78.618,-0.934",
+            f"{osrm_url}/route/v1/driving/-78.617,-0.933;-78.618,-0.934",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
             timeout=2.0
         )
         if response.status_code != 200:

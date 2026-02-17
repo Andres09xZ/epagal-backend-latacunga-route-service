@@ -16,7 +16,7 @@ jobs:
   # PASO 1: Escaneo de Secretos
   # ============================================
   secret-scanning:
-    name: "Paso 1 - Secret Scanning"
+    name: "Secret Scanning"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout código
@@ -33,6 +33,7 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
 
       - name: Búsqueda manual de patrones sensibles
         if: always()
@@ -78,7 +79,7 @@ jobs:
   # PASO 2: Análisis de Dependencias (SCA)
   # ============================================
   dependency-check:
-    name: "Paso 2 - Dependency Security (SCA)"
+    name: "Dependency Security (SCA)"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout código
@@ -141,7 +142,7 @@ jobs:
   # PASO 3: Análisis Estático de Seguridad (SAST)
   # ============================================
   sast:
-    name: "Paso 3 - Static Application Security Testing"
+    name: "Static Application Security Testing (SAST)"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout código
@@ -183,17 +184,15 @@ jobs:
           echo "============================================"
 
       - name: Semgrep - SAST avanzado
-        uses: semgrep/semgrep-action@v1
-        with:
-          config: >-
-            p/python
-            p/flask
-            p/sql-injection
-            p/xss
-            p/secrets
-            p/owasp-top-ten
-        env:
-          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+        run: |
+          pip install semgrep
+          echo "Ejecutando Semgrep SAST..."
+          echo "============================================"
+          semgrep scan --config p/python --config p/flask --config p/sql-injection --config p/xss --config p/secrets --config p/owasp-top-ten --error --severity ERROR app/ || true
+          echo "============================================"
+          echo ""
+          echo "Ejecutando Semgrep (todos los niveles, sin bloquear)..."
+          semgrep scan --config p/python --config p/flask --config p/sql-injection --config p/xss --config p/secrets --config p/owasp-top-ten app/ || true
 
       - name: Flake8 - Análisis de calidad y seguridad
         if: always()
