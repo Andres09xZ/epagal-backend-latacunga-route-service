@@ -62,33 +62,33 @@ def verificar_sistema():
             print(f"\n  Zona: {zona.upper()}")
             
             # Total de incidencias
-            total = db.execute(text(f"""
+            total = db.execute(text("""
                 SELECT COUNT(*), COALESCE(SUM(gravedad), 0)
                 FROM incidencias
-                WHERE zona = '{zona}'
-            """)).fetchone()
+                WHERE zona = :zona
+            """), {"zona": zona}).fetchone()
             
             print(f"  - Total: {total[0]} incidencias")
             print(f"  - Suma gravedad total: {total[1]}")
             
             # Por estado
-            por_estado = db.execute(text(f"""
+            por_estado = db.execute(text("""
                 SELECT estado, COUNT(*), COALESCE(SUM(gravedad), 0)
                 FROM incidencias
-                WHERE zona = '{zona}'
+                WHERE zona = :zona
                 GROUP BY estado
                 ORDER BY estado
-            """)).fetchall()
+            """), {"zona": zona}).fetchall()
             
             for estado, count, suma in por_estado:
                 print(f"    • {estado}: {count} incidencias (gravedad: {suma})")
             
             # Validadas (las que pueden generar rutas)
-            validadas = db.execute(text(f"""
+            validadas = db.execute(text("""
                 SELECT COUNT(*), COALESCE(SUM(gravedad), 0)
                 FROM incidencias
-                WHERE zona = '{zona}' AND estado = 'validada'
-            """)).fetchone()
+                WHERE zona = :zona AND estado = 'validada'
+            """), {"zona": zona}).fetchone()
             
             suma_validadas = validadas[1]
             print(f"\n  → Incidencias VALIDADAS: {validadas[0]}")
@@ -127,11 +127,11 @@ def verificar_sistema():
         # Verificar si hay incidencias que deberían generar rutas
         zonas_para_generar = []
         for zona in ['oriental', 'occidental']:
-            validadas = db.execute(text(f"""
+            validadas = db.execute(text("""
                 SELECT COUNT(*), COALESCE(SUM(gravedad), 0)
                 FROM incidencias
-                WHERE zona = '{zona}' AND estado = 'validada'
-            """)).fetchone()
+                WHERE zona = :zona AND estado = 'validada'
+            """), {"zona": zona}).fetchone()
             
             if validadas[1] > umbral:
                 zonas_para_generar.append(zona)

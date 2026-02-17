@@ -31,10 +31,10 @@ Agrega las siguientes **Environment Variables**:
 
 ```bash
 # Base de Datos (¡IMPORTANTE! Usar tu DB de Neon)
-DB_URL=postgresql://neondb_owner:npg_jnw3bVupEP5i@ep-gentle-pond-adcmrdsv-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+DB_URL=postgresql://<TU_USUARIO>:<TU_PASSWORD>@<TU_ENDPOINT>.neon.tech/neondb?sslmode=require&channel_binding=require
 
 # JWT Secret (Cambiar por uno nuevo para producción)
-JWT_SECRET=tu_secreto_muy_largo_y_seguro_produccion_render_2024
+JWT_SECRET=<GENERA_UN_SECRETO_SEGURO_AQUI>
 
 # RabbitMQ (Deshabilitado temporalmente - no incluido en imagen)
 # RABBITMQ_URL=amqp://guest:guest@localhost:5672/

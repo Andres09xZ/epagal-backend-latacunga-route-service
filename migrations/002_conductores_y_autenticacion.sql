@@ -88,21 +88,23 @@ CREATE TRIGGER update_asignaciones_updated_at BEFORE UPDATE ON asignaciones_cond
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Insertar usuario administrador por defecto
--- Contraseña: admin123 (debe cambiarse en producción)
--- Hash generado con bcrypt
+-- ⚠️ IMPORTANTE: Generar hash en runtime con el script scripts/python/seed_data.py
+-- NO commitear hashes bcrypt reales en el repositorio
+-- La contraseña por defecto debe cambiarse en producción
+-- Para generar el hash: python -c "import bcrypt; print(bcrypt.hashpw(b'admin123', bcrypt.gensalt()).decode())"
 INSERT INTO usuarios (username, email, password_hash, tipo_usuario)
-VALUES ('admin', 'admin@epagal.gob.ec', '$2b$12$iGOwGAo3eHkRO3dncaOHdeuEdRswIARrt2QZ805XKk5wS.z7vtRHG', 'admin')
+VALUES ('admin', 'admin@epagal.gob.ec', '$BCRYPT_HASH_ADMIN', 'admin')
 ON CONFLICT (username) DO NOTHING;
 
 -- Insertar conductores de prueba
--- Contraseña para todos: conductor123
--- Hash generado con bcrypt
+-- ⚠️ IMPORTANTE: Generar hashes en runtime, NO usar hashes reales en migraciones
+-- Para generar: python -c "import bcrypt; print(bcrypt.hashpw(b'conductor123', bcrypt.gensalt()).decode())"
 INSERT INTO usuarios (username, email, password_hash, tipo_usuario)
 VALUES 
-    ('conductor1', 'juan.perez@epagal.gob.ec', '$2b$12$h3esIL5JWWqnLyMD/WBJHe7oV4uesJMKaaty1OHsZS.lH6OjVJx4.', 'conductor'),
-    ('conductor2', 'maria.lopez@epagal.gob.ec', '$2b$12$h3esIL5JWWqnLyMD/WBJHe7oV4uesJMKaaty1OHsZS.lH6OjVJx4.', 'conductor'),
-    ('conductor3', 'carlos.gomez@epagal.gob.ec', '$2b$12$h3esIL5JWWqnLyMD/WBJHe7oV4uesJMKaaty1OHsZS.lH6OjVJx4.', 'conductor'),
-    ('conductor4', 'ana.torres@epagal.gob.ec', '$2b$12$h3esIL5JWWqnLyMD/WBJHe7oV4uesJMKaaty1OHsZS.lH6OjVJx4.', 'conductor')
+    ('conductor1', 'juan.perez@epagal.gob.ec', '$BCRYPT_HASH_CONDUCTOR', 'conductor'),
+    ('conductor2', 'maria.lopez@epagal.gob.ec', '$BCRYPT_HASH_CONDUCTOR', 'conductor'),
+    ('conductor3', 'carlos.gomez@epagal.gob.ec', '$BCRYPT_HASH_CONDUCTOR', 'conductor'),
+    ('conductor4', 'ana.torres@epagal.gob.ec', '$BCRYPT_HASH_CONDUCTOR', 'conductor')
 ON CONFLICT (username) DO NOTHING;
 
 -- Insertar información de conductores

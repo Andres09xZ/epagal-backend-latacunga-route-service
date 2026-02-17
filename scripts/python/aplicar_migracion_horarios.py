@@ -113,11 +113,11 @@ def verificar_tablas():
     try:
         with engine.connect() as connection:
             for tabla in tablas_esperadas:
-                result = connection.execute(text(f"""
+                result = connection.execute(text("""
                     SELECT COUNT(*) as count 
                     FROM information_schema.tables 
-                    WHERE table_name = '{tabla}'
-                """))
+                    WHERE table_name = :tabla
+                """), {"tabla": tabla})
                 
                 count = result.fetchone()[0]
                 

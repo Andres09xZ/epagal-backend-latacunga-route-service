@@ -3,6 +3,7 @@ Servicio de Autenticación con JWT y Bcrypt
 Maneja login, registro y validación de tokens
 Fecha: 2025-12-13
 """
+import os
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
@@ -14,8 +15,14 @@ from app.models import Usuario, Conductor
 from app.schemas.conductores import UsuarioCreate, LoginRequest, TokenResponse
 
 
-# Configuración de seguridad
-SECRET_KEY = "tu-clave-secreta-super-segura-cambiala-en-produccion-123456"  # ⚠️ Cambiar en producción
+# Configuración de seguridad - SECRET_KEY desde variable de entorno (obligatoria)
+SECRET_KEY = os.environ.get("JWT_SECRET") or os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError(
+        "⚠️ JWT_SECRET o SECRET_KEY no está configurada. "
+        "Define la variable de entorno JWT_SECRET antes de iniciar la aplicación. "
+        "Ejemplo: export JWT_SECRET='tu-clave-secreta-segura'"
+    )
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 480  # 8 horas
 

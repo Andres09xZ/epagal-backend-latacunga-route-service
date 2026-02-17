@@ -30,6 +30,8 @@ ALTER SEQUENCE conductores_id_seq RESTART WITH 1;
 DELETE FROM usuarios WHERE tipo_usuario != 'admin';
 
 -- 7. Verificar que el admin existe, si no, crearlo
+-- ⚠️ IMPORTANTE: En producción, generar el hash en runtime
+-- python -c "import bcrypt; print(bcrypt.hashpw(b'admin123', bcrypt.gensalt()).decode())"
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM usuarios WHERE username = 'admin') THEN
@@ -37,7 +39,7 @@ BEGIN
         VALUES (
             'admin',
             'admin@epagal.gob.ec',
-            '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LeEKkDl.LF/7RDqZe', -- password: admin123
+            '$BCRYPT_HASH_ADMIN', -- Reemplazar con hash generado en runtime
             'admin',
             true,
             NOW()

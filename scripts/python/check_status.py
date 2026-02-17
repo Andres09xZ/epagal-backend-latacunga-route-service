@@ -26,11 +26,11 @@ print("VERIFICACIÓN DE UMBRAL (por defecto = 20)")
 print("="*60)
 
 for zona_nombre in ['occidental', 'oriental']:
-    suma = db.execute(text(f"""
+    suma = db.execute(text("""
         SELECT COALESCE(SUM(gravedad), 0) 
         FROM incidencias 
-        WHERE zona = '{zona_nombre}' AND estado = 'validada'
-    """)).scalar()
+        WHERE zona = :zona AND estado = 'validada'
+    """), {"zona": zona_nombre}).scalar()
     
     supera = "✓ SUPERA" if suma > 20 else "✗ NO supera"
     print(f"\n  Zona {zona_nombre:10}: {suma:3} {supera}")
