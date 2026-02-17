@@ -1,0 +1,854 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:modeler="http://camunda.org/schema/modeler" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn" exporter="Camunda Modeler" exporterVersion="5.14.0" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.2.0">
+  <bpmn:process id="Process_1" isExecutable="true">
+    <!-- START EVENT -->
+    <bpmn:startEvent id="StartEvent_Developer" name="Developer Crea Feature">
+      <bpmn:outgoing>Flow_1</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <!-- PHASE 1: CODE -->
+    <bpmn:userTask id="Task_WriteCode" name="Escribir Código">
+      <bpmn:incoming>Flow_1</bpmn:incoming>
+      <bpmn:outgoing>Flow_2</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:userTask id="Task_LocalTests" name="Tests Locales">
+      <bpmn:incoming>Flow_2</bpmn:incoming>
+      <bpmn:outgoing>Flow_3</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- PRE-COMMIT HOOKS -->
+    <bpmn:serviceTask id="Task_PreCommit" name="Pre-commit Hooks">
+      <bpmn:incoming>Flow_3</bpmn:incoming>
+      <bpmn:outgoing>Flow_4</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- COMMIT & PUSH -->
+    <bpmn:userTask id="Task_CommitPush" name="Git Commit &amp; Push">
+      <bpmn:incoming>Flow_4</bpmn:incoming>
+      <bpmn:outgoing>Flow_5</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- PHASE 2: BUILD -->
+    <bpmn:startEvent id="StartEvent_GitHubActions" name="GitHub Actions Trigger">
+      <bpmn:incoming>Flow_5</bpmn:incoming>
+      <bpmn:outgoing>Flow_6</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="Task_Checkout" name="Checkout Código">
+      <bpmn:incoming>Flow_6</bpmn:incoming>
+      <bpmn:outgoing>Flow_7</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_SetupEnv" name="Setup Python &amp; Dependencias">
+      <bpmn:incoming>Flow_7</bpmn:incoming>
+      <bpmn:outgoing>Flow_8</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- PHASE 3: SECURITY - Parallel Gates -->
+    <bpmn:parallelGateway id="Gateway_SecurityStart" name="Security Checks">
+      <bpmn:incoming>Flow_8</bpmn:incoming>
+      <bpmn:outgoing>Flow_SAST</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Secrets</bpmn:outgoing>
+      <bpmn:outgoing>Flow_SCA</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Quality</bpmn:outgoing>
+    </bpmn:parallelGateway>
+
+    <!-- SAST -->
+    <bpmn:serviceTask id="Task_CodeQL" name="CodeQL Analysis">
+      <bpmn:incoming>Flow_SAST</bpmn:incoming>
+      <bpmn:outgoing>Flow_Bandit</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_Bandit" name="Bandit Security">
+      <bpmn:incoming>Flow_Bandit</bpmn:incoming>
+      <bpmn:outgoing>Flow_Semgrep</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_Semgrep" name="Semgrep Scan">
+      <bpmn:incoming>Flow_Semgrep</bpmn:incoming>
+      <bpmn:outgoing>Flow_9</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- SECRET SCANNING -->
+    <bpmn:serviceTask id="Task_Gitleaks" name="Gitleaks Scan">
+      <bpmn:incoming>Flow_Secrets</bpmn:incoming>
+      <bpmn:outgoing>Flow_TruffleHog</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_TruffleHog" name="TruffleHog Scan">
+      <bpmn:incoming>Flow_TruffleHog</bpmn:incoming>
+      <bpmn:outgoing>Flow_10</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- SCA -->
+    <bpmn:serviceTask id="Task_Safety" name="Safety Check">
+      <bpmn:incoming>Flow_SCA</bpmn:incoming>
+      <bpmn:outgoing>Flow_PipAudit</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_PipAudit" name="pip-audit">
+      <bpmn:incoming>Flow_PipAudit</bpmn:incoming>
+      <bpmn:outgoing>Flow_Licenses</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_Licenses" name="License Compliance">
+      <bpmn:incoming>Flow_Licenses</bpmn:incoming>
+      <bpmn:outgoing>Flow_11</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- CODE QUALITY -->
+    <bpmn:serviceTask id="Task_Pylint" name="Pylint">
+      <bpmn:incoming>Flow_Quality</bpmn:incoming>
+      <bpmn:outgoing>Flow_Black</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_Black" name="Black Format">
+      <bpmn:incoming>Flow_Black</bpmn:incoming>
+      <bpmn:outgoing>Flow_Flake8</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_Flake8" name="Flake8 Lint">
+      <bpmn:incoming>Flow_Flake8</bpmn:incoming>
+      <bpmn:outgoing>Flow_12</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- PARALLEL GATEWAY SYNC -->
+    <bpmn:parallelGateway id="Gateway_SecurityEnd" name="Join Security">
+      <bpmn:incoming>Flow_9</bpmn:incoming>
+      <bpmn:incoming>Flow_10</bpmn:incoming>
+      <bpmn:incoming>Flow_11</bpmn:incoming>
+      <bpmn:incoming>Flow_12</bpmn:incoming>
+      <bpmn:outgoing>Flow_13</bpmn:outgoing>
+    </bpmn:parallelGateway>
+
+    <!-- DECISION GATE -->
+    <bpmn:exclusiveGateway id="Gateway_SecurityPass" name="¿Todos pasan?" default="Flow_Fail">
+      <bpmn:incoming>Flow_13</bpmn:incoming>
+      <bpmn:outgoing>Flow_Pass</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Fail</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- FAIL PATH -->
+    <bpmn:endEvent id="EndEvent_Fail" name="Bloquear Merge">
+      <bpmn:incoming>Flow_Fail</bpmn:incoming>
+      <bpmn:errorEventDefinition id="ErrorEventDefinition_1" />
+    </bpmn:endEvent>
+
+    <!-- PHASE 4: BUILD & TEST -->
+    <bpmn:serviceTask id="Task_BuildApp" name="Build Aplicación">
+      <bpmn:incoming>Flow_Pass</bpmn:incoming>
+      <bpmn:outgoing>Flow_14</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_UnitTests" name="Unit Tests">
+      <bpmn:incoming>Flow_14</bpmn:incoming>
+      <bpmn:outgoing>Flow_15</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_IntegrationTests" name="Integration Tests">
+      <bpmn:incoming>Flow_15</bpmn:incoming>
+      <bpmn:outgoing>Flow_16</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- PHASE 5: CONTAINER SECURITY -->
+    <bpmn:serviceTask id="Task_DockerBuild" name="Build Docker Image">
+      <bpmn:incoming>Flow_16</bpmn:incoming>
+      <bpmn:outgoing>Flow_17</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_Trivy" name="Trivy Scan">
+      <bpmn:incoming>Flow_17</bpmn:incoming>
+      <bpmn:outgoing>Flow_18</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_Hadolint" name="Hadolint Check">
+      <bpmn:incoming>Flow_18</bpmn:incoming>
+      <bpmn:outgoing>Flow_19</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- DECISION GATE CONTAINER -->
+    <bpmn:exclusiveGateway id="Gateway_ContainerPass" name="¿Imagen segura?" default="Flow_ContainerFail">
+      <bpmn:incoming>Flow_19</bpmn:incoming>
+      <bpmn:outgoing>Flow_ContainerPass</bpmn:outgoing>
+      <bpmn:outgoing>Flow_ContainerFail</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:endEvent id="EndEvent_ContainerFail" name="Bloquear Deploy">
+      <bpmn:incoming>Flow_ContainerFail</bpmn:incoming>
+      <bpmn:errorEventDefinition id="ErrorEventDefinition_2" />
+    </bpmn:endEvent>
+
+    <!-- PHASE 6: DEPLOY -->
+    <bpmn:serviceTask id="Task_DockerPush" name="Push a Docker Hub">
+      <bpmn:incoming>Flow_ContainerPass</bpmn:incoming>
+      <bpmn:outgoing>Flow_20</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:exclusiveGateway id="Gateway_DeployTarget" name="¿Rama?" default="Flow_Develop">
+      <bpmn:incoming>Flow_20</bpmn:incoming>
+      <bpmn:outgoing>Flow_Develop</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Main</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- DEPLOY TO STAGING -->
+    <bpmn:serviceTask id="Task_DeployStaging" name="Deploy a Staging">
+      <bpmn:incoming>Flow_Develop</bpmn:incoming>
+      <bpmn:outgoing>Flow_21</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- DEPLOY TO PRODUCTION -->
+    <bpmn:serviceTask id="Task_DeployProd" name="Deploy a Producción">
+      <bpmn:incoming>Flow_Main</bpmn:incoming>
+      <bpmn:outgoing>Flow_22</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- PHASE 7: MONITOR -->
+    <bpmn:parallelGateway id="Gateway_MonitorStart">
+      <bpmn:incoming>Flow_21</bpmn:incoming>
+      <bpmn:incoming>Flow_22</bpmn:incoming>
+      <bpmn:outgoing>Flow_23</bpmn:outgoing>
+      <bpmn:outgoing>Flow_24</bpmn:outgoing>
+    </bpmn:parallelGateway>
+
+    <bpmn:serviceTask id="Task_HealthCheck" name="Health Checks">
+      <bpmn:incoming>Flow_23</bpmn:incoming>
+      <bpmn:outgoing>Flow_25</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_Logs" name="Logs &amp; Monitoring">
+      <bpmn:incoming>Flow_24</bpmn:incoming>
+      <bpmn:outgoing>Flow_26</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- END -->
+    <bpmn:parallelGateway id="Gateway_End">
+      <bpmn:incoming>Flow_25</bpmn:incoming>
+      <bpmn:incoming>Flow_26</bpmn:incoming>
+      <bpmn:outgoing>Flow_27</bpmn:outgoing>
+    </bpmn:parallelGateway>
+
+    <bpmn:endEvent id="EndEvent_Success" name="Pipeline Completado">
+      <bpmn:incoming>Flow_27</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- SEQUENCE FLOWS -->
+    <bpmn:sequenceFlow id="Flow_1" sourceRef="StartEvent_Developer" targetRef="Task_WriteCode" />
+    <bpmn:sequenceFlow id="Flow_2" sourceRef="Task_WriteCode" targetRef="Task_LocalTests" />
+    <bpmn:sequenceFlow id="Flow_3" sourceRef="Task_LocalTests" targetRef="Task_PreCommit" />
+    <bpmn:sequenceFlow id="Flow_4" sourceRef="Task_PreCommit" targetRef="Task_CommitPush" />
+    <bpmn:sequenceFlow id="Flow_5" sourceRef="Task_CommitPush" targetRef="StartEvent_GitHubActions" />
+    <bpmn:sequenceFlow id="Flow_6" sourceRef="StartEvent_GitHubActions" targetRef="Task_Checkout" />
+    <bpmn:sequenceFlow id="Flow_7" sourceRef="Task_Checkout" targetRef="Task_SetupEnv" />
+    <bpmn:sequenceFlow id="Flow_8" sourceRef="Task_SetupEnv" targetRef="Gateway_SecurityStart" />
+
+    <!-- SECURITY FLOWS -->
+    <bpmn:sequenceFlow id="Flow_SAST" sourceRef="Gateway_SecurityStart" targetRef="Task_CodeQL" />
+    <bpmn:sequenceFlow id="Flow_Secrets" sourceRef="Gateway_SecurityStart" targetRef="Task_Gitleaks" />
+    <bpmn:sequenceFlow id="Flow_SCA" sourceRef="Gateway_SecurityStart" targetRef="Task_Safety" />
+    <bpmn:sequenceFlow id="Flow_Quality" sourceRef="Gateway_SecurityStart" targetRef="Task_Pylint" />
+
+    <!-- SAST CHAIN -->
+    <bpmn:sequenceFlow id="Flow_Bandit" sourceRef="Task_CodeQL" targetRef="Task_Bandit" />
+    <bpmn:sequenceFlow id="Flow_Semgrep" sourceRef="Task_Bandit" targetRef="Task_Semgrep" />
+    <bpmn:sequenceFlow id="Flow_9" sourceRef="Task_Semgrep" targetRef="Gateway_SecurityEnd" />
+
+    <!-- SECRETS CHAIN -->
+    <bpmn:sequenceFlow id="Flow_TruffleHog" sourceRef="Task_Gitleaks" targetRef="Task_TruffleHog" />
+    <bpmn:sequenceFlow id="Flow_10" sourceRef="Task_TruffleHog" targetRef="Gateway_SecurityEnd" />
+
+    <!-- SCA CHAIN -->
+    <bpmn:sequenceFlow id="Flow_PipAudit" sourceRef="Task_Safety" targetRef="Task_PipAudit" />
+    <bpmn:sequenceFlow id="Flow_Licenses" sourceRef="Task_PipAudit" targetRef="Task_Licenses" />
+    <bpmn:sequenceFlow id="Flow_11" sourceRef="Task_Licenses" targetRef="Gateway_SecurityEnd" />
+
+    <!-- QUALITY CHAIN -->
+    <bpmn:sequenceFlow id="Flow_Black" sourceRef="Task_Pylint" targetRef="Task_Black" />
+    <bpmn:sequenceFlow id="Flow_Flake8" sourceRef="Task_Black" targetRef="Task_Flake8" />
+    <bpmn:sequenceFlow id="Flow_12" sourceRef="Task_Flake8" targetRef="Gateway_SecurityEnd" />
+
+    <!-- DECISION -->
+    <bpmn:sequenceFlow id="Flow_13" sourceRef="Gateway_SecurityEnd" targetRef="Gateway_SecurityPass" />
+    <bpmn:sequenceFlow id="Flow_Pass" name="✅ Todos pasan" sourceRef="Gateway_SecurityPass" targetRef="Task_BuildApp" />
+    <bpmn:sequenceFlow id="Flow_Fail" name="❌ Falla" sourceRef="Gateway_SecurityPass" targetRef="EndEvent_Fail" />
+
+    <!-- BUILD & TEST -->
+    <bpmn:sequenceFlow id="Flow_14" sourceRef="Task_BuildApp" targetRef="Task_UnitTests" />
+    <bpmn:sequenceFlow id="Flow_15" sourceRef="Task_UnitTests" targetRef="Task_IntegrationTests" />
+
+    <!-- CONTAINER -->
+    <bpmn:sequenceFlow id="Flow_16" sourceRef="Task_IntegrationTests" targetRef="Task_DockerBuild" />
+    <bpmn:sequenceFlow id="Flow_17" sourceRef="Task_DockerBuild" targetRef="Task_Trivy" />
+    <bpmn:sequenceFlow id="Flow_18" sourceRef="Task_Trivy" targetRef="Task_Hadolint" />
+    <bpmn:sequenceFlow id="Flow_19" sourceRef="Task_Hadolint" targetRef="Gateway_ContainerPass" />
+    <bpmn:sequenceFlow id="Flow_ContainerPass" name="✅ Seguro" sourceRef="Gateway_ContainerPass" targetRef="Task_DockerPush" />
+    <bpmn:sequenceFlow id="Flow_ContainerFail" name="❌ Falla" sourceRef="Gateway_ContainerPass" targetRef="EndEvent_ContainerFail" />
+
+    <!-- DEPLOY -->
+    <bpmn:sequenceFlow id="Flow_20" sourceRef="Task_DockerPush" targetRef="Gateway_DeployTarget" />
+    <bpmn:sequenceFlow id="Flow_Develop" name="develop" sourceRef="Gateway_DeployTarget" targetRef="Task_DeployStaging" />
+    <bpmn:sequenceFlow id="Flow_Main" name="main" sourceRef="Gateway_DeployTarget" targetRef="Task_DeployProd" />
+
+    <!-- MONITOR -->
+    <bpmn:sequenceFlow id="Flow_21" sourceRef="Task_DeployStaging" targetRef="Gateway_MonitorStart" />
+    <bpmn:sequenceFlow id="Flow_22" sourceRef="Task_DeployProd" targetRef="Gateway_MonitorStart" />
+    <bpmn:sequenceFlow id="Flow_23" sourceRef="Gateway_MonitorStart" targetRef="Task_HealthCheck" />
+    <bpmn:sequenceFlow id="Flow_24" sourceRef="Gateway_MonitorStart" targetRef="Task_Logs" />
+    <bpmn:sequenceFlow id="Flow_25" sourceRef="Task_HealthCheck" targetRef="Gateway_End" />
+    <bpmn:sequenceFlow id="Flow_26" sourceRef="Task_Logs" targetRef="Gateway_End" />
+    <bpmn:sequenceFlow id="Flow_27" sourceRef="Gateway_End" targetRef="EndEvent_Success" />
+  </bpmn:process>
+
+  <!-- DIAGRAM -->
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
+      <!-- Start -->
+      <bpmndi:BPMNShape id="StartEvent_Developer_di" bpmnElement="StartEvent_Developer">
+        <dc:Bounds x="50" y="80" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="30" y="123" width="77" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <!-- Code Phase -->
+      <bpmndi:BPMNShape id="Task_WriteCode_di" bpmnElement="Task_WriteCode">
+        <dc:Bounds x="150" y="60" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="170" y="100" width="60" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Task_LocalTests_di" bpmnElement="Task_LocalTests">
+        <dc:Bounds x="320" y="60" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="340" y="100" width="60" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Task_PreCommit_di" bpmnElement="Task_PreCommit">
+        <dc:Bounds x="490" y="60" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="500" y="100" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Task_CommitPush_di" bpmnElement="Task_CommitPush">
+        <dc:Bounds x="660" y="60" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="665" y="98" width="90" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <!-- GitHub Actions Start -->
+      <bpmndi:BPMNShape id="StartEvent_GitHubActions_di" bpmnElement="StartEvent_GitHubActions">
+        <dc:Bounds x="50" y="200" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="30" y="243" width="77" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <!-- Build Phase -->
+      <bpmndi:BPMNShape id="Task_Checkout_di" bpmnElement="Task_Checkout">
+        <dc:Bounds x="150" y="180" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="160" y="220" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Task_SetupEnv_di" bpmnElement="Task_SetupEnv">
+        <dc:Bounds x="320" y="180" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="328" y="218" width="84" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <!-- Security Gateway -->
+      <bpmndi:BPMNShape id="Gateway_SecurityStart_di" bpmnElement="Gateway_SecurityStart">
+        <dc:Bounds x="525" y="195" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="515" y="255" width="70" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <!-- SAST Tasks -->
+      <bpmndi:BPMNShape id="Task_CodeQL_di" bpmnElement="Task_CodeQL">
+        <dc:Bounds x="680" y="150" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="690" y="190" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Task_Bandit_di" bpmnElement="Task_Bandit">
+        <dc:Bounds x="850" y="150" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="860" y="190" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Task_Semgrep_di" bpmnElement="Task_Semgrep">
+        <dc:Bounds x="1020" y="150" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1030" y="190" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <!-- Secrets Tasks -->
+      <bpmndi:BPMNShape id="Task_Gitleaks_di" bpmnElement="Task_Gitleaks">
+        <dc:Bounds x="680" y="280" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="690" y="320" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Task_TruffleHog_di" bpmnElement="Task_TruffleHog">
+        <dc:Bounds x="850" y="280" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="860" y="320" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <!-- SCA Tasks -->
+      <bpmndi:BPMNShape id="Task_Safety_di" bpmnElement="Task_Safety">
+        <dc:Bounds x="680" y="410" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="690" y="450" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Task_PipAudit_di" bpmnElement="Task_PipAudit">
+        <dc:Bounds x="850" y="410" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="860" y="450" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Task_Licenses_di" bpmnElement="Task_Licenses">
+        <dc:Bounds x="1020" y="410" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1030" y="450" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <!-- Quality Tasks -->
+      <bpmndi:BPMNShape id="Task_Pylint_di" bpmnElement="Task_Pylint">
+        <dc:Bounds x="680" y="540" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="690" y="580" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Task_Black_di" bpmnElement="Task_Black">
+        <dc:Bounds x="850" y="540" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="860" y="580" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Task_Flake8_di" bpmnElement="Task_Flake8">
+        <dc:Bounds x="1020" y="540" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1030" y="580" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <!-- Security End Gateway -->
+      <bpmndi:BPMNShape id="Gateway_SecurityEnd_di" bpmnElement="Gateway_SecurityEnd">
+        <dc:Bounds x="1165" y="345" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1155" y="405" width="70" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <!-- Decision Gate -->
+      <bpmndi:BPMNShape id="Gateway_SecurityPass_di" bpmnElement="Gateway_SecurityPass">
+        <dc:Bounds x="1315" y="345" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1305" y="335" width="70" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <!-- Fail End -->
+      <bpmndi:BPMNShape id="EndEvent_Fail_di" bpmnElement="EndEvent_Fail">
+        <dc:Bounds x="1322" y="470" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1302" y="513" width="77" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <!-- Build & Test -->
+      <bpmndi:BPMNShape id="Task_BuildApp_di" bpmnElement="Task_BuildApp">
+        <dc:Bounds x="1450" y="325" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1460" y="365" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Task_UnitTests_di" bpmnElement="Task_UnitTests">
+        <dc:Bounds x="1620" y="325" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1630" y="365" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Task_IntegrationTests_di" bpmnElement="Task_IntegrationTests">
+        <dc:Bounds x="1790" y="325" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1800" y="365" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <!-- Container -->
+      <bpmndi:BPMNShape id="Task_DockerBuild_di" bpmnElement="Task_DockerBuild">
+        <dc:Bounds x="1960" y="325" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1970" y="365" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Task_Trivy_di" bpmnElement="Task_Trivy">
+        <dc:Bounds x="2130" y="325" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2140" y="365" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Task_Hadolint_di" bpmnElement="Task_Hadolint">
+        <dc:Bounds x="2300" y="325" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2310" y="365" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <!-- Container Decision -->
+      <bpmndi:BPMNShape id="Gateway_ContainerPass_di" bpmnElement="Gateway_ContainerPass">
+        <dc:Bounds x="2450" y="345" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2440" y="335" width="70" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="EndEvent_ContainerFail_di" bpmnElement="EndEvent_ContainerFail">
+        <dc:Bounds x="2457" y="470" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2437" y="513" width="77" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <!-- Deploy -->
+      <bpmndi:BPMNShape id="Task_DockerPush_di" bpmnElement="Task_DockerPush">
+        <dc:Bounds x="2580" y="325" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2590" y="365" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Gateway_DeployTarget_di" bpmnElement="Gateway_DeployTarget">
+        <dc:Bounds x="2745" y="345" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2735" y="335" width="70" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Task_DeployStaging_di" bpmnElement="Task_DeployStaging">
+        <dc:Bounds x="2870" y="250" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2880" y="290" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Task_DeployProd_di" bpmnElement="Task_DeployProd">
+        <dc:Bounds x="2870" y="410" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2880" y="450" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <!-- Monitor -->
+      <bpmndi:BPMNShape id="Gateway_MonitorStart_di" bpmnElement="Gateway_MonitorStart">
+        <dc:Bounds x="3045" y="315" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="3025" y="375" width="90" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Task_HealthCheck_di" bpmnElement="Task_HealthCheck">
+        <dc:Bounds x="3170" y="250" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="3180" y="290" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Task_Logs_di" bpmnElement="Task_Logs">
+        <dc:Bounds x="3170" y="410" width="100" height="80" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="3180" y="448" width="80" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <!-- End Gateway -->
+      <bpmndi:BPMNShape id="Gateway_End_di" bpmnElement="Gateway_End">
+        <dc:Bounds x="3345" y="315" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="3325" y="375" width="90" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <!-- Success End -->
+      <bpmndi:BPMNShape id="EndEvent_Success_di" bpmnElement="EndEvent_Success">
+        <dc:Bounds x="3462" y="322" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="3442" y="365" width="77" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <!-- CONNECTORS -->
+      <bpmndi:BPMNEdge id="Flow_1_di" bpmnElement="Flow_1">
+        <di:waypoint x="86" y="98" />
+        <di:waypoint x="150" y="100" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_2_di" bpmnElement="Flow_2">
+        <di:waypoint x="250" y="100" />
+        <di:waypoint x="320" y="100" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_3_di" bpmnElement="Flow_3">
+        <di:waypoint x="420" y="100" />
+        <di:waypoint x="490" y="100" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_4_di" bpmnElement="Flow_4">
+        <di:waypoint x="590" y="100" />
+        <di:waypoint x="660" y="100" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_5_di" bpmnElement="Flow_5">
+        <di:waypoint x="710" y="140" />
+        <di:waypoint x="68" y="200" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_6_di" bpmnElement="Flow_6">
+        <di:waypoint x="86" y="218" />
+        <di:waypoint x="150" y="220" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_7_di" bpmnElement="Flow_7">
+        <di:waypoint x="250" y="220" />
+        <di:waypoint x="320" y="220" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_8_di" bpmnElement="Flow_8">
+        <di:waypoint x="420" y="220" />
+        <di:waypoint x="525" y="220" />
+      </bpmndi:BPMNEdge>
+
+      <!-- Security parallel flows -->
+      <bpmndi:BPMNEdge id="Flow_SAST_di" bpmnElement="Flow_SAST">
+        <di:waypoint x="575" y="195" />
+        <di:waypoint x="680" y="190" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_Secrets_di" bpmnElement="Flow_Secrets">
+        <di:waypoint x="525" y="220" />
+        <di:waypoint x="680" y="320" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_SCA_di" bpmnElement="Flow_SCA">
+        <di:waypoint x="550" y="245" />
+        <di:waypoint x="680" y="450" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_Quality_di" bpmnElement="Flow_Quality">
+        <di:waypoint x="575" y="245" />
+        <di:waypoint x="680" y="580" />
+      </bpmndi:BPMNEdge>
+
+      <!-- SAST chain -->
+      <bpmndi:BPMNEdge id="Flow_Bandit_di" bpmnElement="Flow_Bandit">
+        <di:waypoint x="780" y="190" />
+        <di:waypoint x="850" y="190" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_Semgrep_di" bpmnElement="Flow_Semgrep">
+        <di:waypoint x="950" y="190" />
+        <di:waypoint x="1020" y="190" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_9_di" bpmnElement="Flow_9">
+        <di:waypoint x="1120" y="190" />
+        <di:waypoint x="1190" y="345" />
+      </bpmndi:BPMNEdge>
+
+      <!-- Secrets chain -->
+      <bpmndi:BPMNEdge id="Flow_TruffleHog_di" bpmnElement="Flow_TruffleHog">
+        <di:waypoint x="780" y="320" />
+        <di:waypoint x="850" y="320" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_10_di" bpmnElement="Flow_10">
+        <di:waypoint x="950" y="320" />
+        <di:waypoint x="1190" y="370" />
+      </bpmndi:BPMNEdge>
+
+      <!-- SCA chain -->
+      <bpmndi:BPMNEdge id="Flow_PipAudit_di" bpmnElement="Flow_PipAudit">
+        <di:waypoint x="780" y="450" />
+        <di:waypoint x="850" y="450" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_Licenses_di" bpmnElement="Flow_Licenses">
+        <di:waypoint x="950" y="450" />
+        <di:waypoint x="1020" y="450" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_11_di" bpmnElement="Flow_11">
+        <di:waypoint x="1120" y="450" />
+        <di:waypoint x="1190" y="370" />
+      </bpmndi:BPMNEdge>
+
+      <!-- Quality chain -->
+      <bpmndi:BPMNEdge id="Flow_Black_di" bpmnElement="Flow_Black">
+        <di:waypoint x="780" y="580" />
+        <di:waypoint x="850" y="580" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_Flake8_di" bpmnElement="Flow_Flake8">
+        <di:waypoint x="950" y="580" />
+        <di:waypoint x="1020" y="580" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_12_di" bpmnElement="Flow_12">
+        <di:waypoint x="1120" y="580" />
+        <di:waypoint x="1190" y="370" />
+      </bpmndi:BPMNEdge>
+
+      <!-- Decision flows -->
+      <bpmndi:BPMNEdge id="Flow_13_di" bpmnElement="Flow_13">
+        <di:waypoint x="1215" y="370" />
+        <di:waypoint x="1315" y="370" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_Pass_di" bpmnElement="Flow_Pass">
+        <di:waypoint x="1365" y="370" />
+        <di:waypoint x="1450" y="365" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1395" y="351" width="20" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_Fail_di" bpmnElement="Flow_Fail">
+        <di:waypoint x="1340" y="395" />
+        <di:waypoint x="1340" y="470" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1325" y="425" width="30" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+
+      <!-- Build & Test chain -->
+      <bpmndi:BPMNEdge id="Flow_14_di" bpmnElement="Flow_14">
+        <di:waypoint x="1550" y="365" />
+        <di:waypoint x="1620" y="365" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_15_di" bpmnElement="Flow_15">
+        <di:waypoint x="1720" y="365" />
+        <di:waypoint x="1790" y="365" />
+      </bpmndi:BPMNEdge>
+
+      <!-- Container chain -->
+      <bpmndi:BPMNEdge id="Flow_16_di" bpmnElement="Flow_16">
+        <di:waypoint x="1890" y="365" />
+        <di:waypoint x="1960" y="365" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_17_di" bpmnElement="Flow_17">
+        <di:waypoint x="2060" y="365" />
+        <di:waypoint x="2130" y="365" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_18_di" bpmnElement="Flow_18">
+        <di:waypoint x="2230" y="365" />
+        <di:waypoint x="2300" y="365" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_19_di" bpmnElement="Flow_19">
+        <di:waypoint x="2400" y="365" />
+        <di:waypoint x="2450" y="370" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_ContainerPass_di" bpmnElement="Flow_ContainerPass">
+        <di:waypoint x="2500" y="370" />
+        <di:waypoint x="2580" y="365" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2520" y="351" width="40" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_ContainerFail_di" bpmnElement="Flow_ContainerFail">
+        <di:waypoint x="2475" y="395" />
+        <di:waypoint x="2475" y="470" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2460" y="425" width="30" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+
+      <!-- Deploy flows -->
+      <bpmndi:BPMNEdge id="Flow_20_di" bpmnElement="Flow_20">
+        <di:waypoint x="2680" y="365" />
+        <di:waypoint x="2745" y="370" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_Develop_di" bpmnElement="Flow_Develop">
+        <di:waypoint x="2770" y="345" />
+        <di:waypoint x="2870" y="290" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2805" y="315" width="30" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_Main_di" bpmnElement="Flow_Main">
+        <di:waypoint x="2770" y="395" />
+        <di:waypoint x="2870" y="450" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2810" y="415" width="30" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+
+      <!-- Monitor flows -->
+      <bpmndi:BPMNEdge id="Flow_21_di" bpmnElement="Flow_21">
+        <di:waypoint x="2970" y="290" />
+        <di:waypoint x="3045" y="340" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_22_di" bpmnElement="Flow_22">
+        <di:waypoint x="2970" y="450" />
+        <di:waypoint x="3045" y="340" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_23_di" bpmnElement="Flow_23">
+        <di:waypoint x="3095" y="315" />
+        <di:waypoint x="3170" y="290" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_24_di" bpmnElement="Flow_24">
+        <di:waypoint x="3095" y="340" />
+        <di:waypoint x="3170" y="450" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_25_di" bpmnElement="Flow_25">
+        <di:waypoint x="3270" y="290" />
+        <di:waypoint x="3345" y="340" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_26_di" bpmnElement="Flow_26">
+        <di:waypoint x="3270" y="450" />
+        <di:waypoint x="3345" y="340" />
+      </bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="Flow_27_di" bpmnElement="Flow_27">
+        <di:waypoint x="3395" y="340" />
+        <di:waypoint x="3462" y="340" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

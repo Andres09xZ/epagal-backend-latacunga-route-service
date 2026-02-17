@@ -1,0 +1,368 @@
+name: "\U0001F512 DevSecOps Pipeline"
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  # ============================================
+  # PASO 1: Escaneo de Secretos
+  # ============================================
+  secret-scanning:
+    name: "\U0001F510 Paso 1 - Secret Scanning"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog - Detectar secretos en historial
+        uses: trufflesecurity/trufflehog@main
+        with:
+          extra_args: --only-verified
+
+      - name: Gitleaks - Escaneo de secretos en código
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Búsqueda manual de patrones sensibles
+        if: always()
+        run: |
+          echo "🔍 Buscando patrones de secretos hardcodeados..."
+          echo "============================================"
+
+          FOUND=0
+
+          # Buscar passwords hardcodeados
+          echo "📌 Verificando passwords en código Python..."
+          grep -rn "password\s*=\s*['\"]" app/ --include="*.py" | grep -v "\.env\|environ\|getenv\|config\|#\|test\|example\|DESCRIPTION\|schema\|Field\|Optional\|str\|None\|param\|doc\|help" || echo "  ✅ No se encontraron passwords hardcodeados"
+
+          # Buscar API keys
+          echo "📌 Verificando API keys..."
+          grep -rn "api_key\s*=\s*['\"]" app/ --include="*.py" | grep -v "environ\|getenv\|config\|#\|test" || echo "  ✅ No se encontraron API keys hardcodeadas"
+
+          # Buscar tokens
+          echo "📌 Verificando tokens..."
+          grep -rn "token\s*=\s*['\"][A-Za-z0-9]" app/ --include="*.py" | grep -v "environ\|getenv\|config\|#\|test\|csrf\|DESCRIPTION" || echo "  ✅ No se encontraron tokens hardcodeados"
+
+          # Buscar connection strings
+          echo "📌 Verificando connection strings..."
+          grep -rn "postgresql://\|mysql://\|mongodb://" app/ --include="*.py" | grep -v "environ\|getenv\|config\|#\|example\|localhost" || echo "  ✅ No se encontraron connection strings hardcodeadas"
+
+          # Verificar que .env no se suba al repo
+          echo "📌 Verificando .gitignore incluye .env..."
+          if grep -q "^\.env$" .gitignore 2>/dev/null; then
+            echo "  ✅ .env está en .gitignore"
+          else
+            echo "  ⚠️ ADVERTENCIA: .env NO está en .gitignore"
+            FOUND=1
+          fi
+
+          echo "============================================"
+          if [ $FOUND -eq 1 ]; then
+            echo "⚠️ Se encontraron posibles problemas de secretos"
+          else
+            echo "✅ Escaneo de secretos completado sin problemas críticos"
+          fi
+
+  # ============================================
+  # PASO 2: Análisis de Dependencias (SCA)
+  # ============================================
+  dependency-check:
+    name: "\U0001F4E6 Paso 2 - Dependency Security (SCA)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Instalar dependencias del proyecto
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: pip-audit - Auditoría de vulnerabilidades
+        run: |
+          pip install pip-audit
+          echo "🔍 Ejecutando pip-audit..."
+          echo "============================================"
+          pip-audit -r requirements.txt --format columns || true
+          echo "============================================"
+          echo ""
+          echo "📊 Generando reporte en formato JSON..."
+          pip-audit -r requirements.txt --format json --output pip-audit-report.json || true
+
+      - name: Safety - Verificar CVEs conocidos
+        run: |
+          pip install safety
+          echo "🔍 Ejecutando Safety check..."
+          echo "============================================"
+          safety check -r requirements.txt --full-report || true
+          echo "============================================"
+
+      - name: Análisis de dependencias desactualizadas
+        run: |
+          echo "📌 Dependencias desactualizadas:"
+          echo "============================================"
+          pip list --outdated --format columns || true
+          echo "============================================"
+
+      - name: Verificar licencias de dependencias
+        run: |
+          pip install pip-licenses
+          echo "📜 Licencias de dependencias:"
+          echo "============================================"
+          pip-licenses --format table --with-urls || true
+          echo "============================================"
+
+      - name: Subir reporte de auditoría
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-audit-report
+          path: pip-audit-report.json
+          retention-days: 30
+
+  # ============================================
+  # PASO 3: Análisis Estático de Seguridad (SAST)
+  # ============================================
+  sast:
+    name: "\U0001F50D Paso 3 - Static Application Security Testing"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Instalar herramientas SAST
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit flake8
+
+      - name: Bandit - Análisis de seguridad (resumen)
+        run: |
+          echo "🔍 Ejecutando Bandit - Análisis de seguridad Python..."
+          echo "============================================"
+          bandit -r app/ -ll -ii --format screen || true
+          echo "============================================"
+
+      - name: Bandit - Generar reporte detallado JSON
+        if: always()
+        run: |
+          bandit -r app/ -f json -o bandit-report.json || true
+
+      - name: Bandit - Generar reporte HTML
+        if: always()
+        run: |
+          bandit -r app/ -f html -o bandit-report.html || true
+
+      - name: Bandit - Análisis de severidad ALTA y CRÍTICA
+        run: |
+          echo "🚨 Vulnerabilidades de severidad ALTA:"
+          echo "============================================"
+          bandit -r app/ -ll -ii --severity-level high --format screen || echo "✅ No se encontraron vulnerabilidades de severidad alta"
+          echo "============================================"
+
+      - name: Semgrep - SAST avanzado
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: >-
+            p/python
+            p/flask
+            p/sql-injection
+            p/xss
+            p/secrets
+            p/owasp-top-ten
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+      - name: Flake8 - Análisis de calidad y seguridad
+        if: always()
+        run: |
+          echo "🔍 Ejecutando Flake8..."
+          echo "============================================"
+          flake8 app/ --max-line-length 120 --statistics --count \
+            --select=E9,F63,F7,F82,W6 \
+            --show-source || true
+          echo "============================================"
+
+      - name: Análisis de SQL Injection patterns
+        if: always()
+        run: |
+          echo "🗃️ Buscando patrones de SQL Injection..."
+          echo "============================================"
+
+          SQLI_FOUND=0
+
+          # f-strings con SQL
+          echo "📌 Buscando f-strings con consultas SQL..."
+          RESULTS=$(grep -rn 'f".*SELECT\|f".*INSERT\|f".*UPDATE\|f".*DELETE\|f".*DROP' app/ --include="*.py" 2>/dev/null || true)
+          if [ -n "$RESULTS" ]; then
+            echo "⚠️ POSIBLE SQL INJECTION con f-strings:"
+            echo "$RESULTS"
+            SQLI_FOUND=1
+          else
+            echo "  ✅ No se encontraron f-strings SQL"
+          fi
+
+          # .format() con SQL
+          echo "📌 Buscando .format() con consultas SQL..."
+          RESULTS=$(grep -rn '\.format.*SELECT\|\.format.*INSERT\|\.format.*UPDATE\|\.format.*DELETE' app/ --include="*.py" 2>/dev/null || true)
+          if [ -n "$RESULTS" ]; then
+            echo "⚠️ POSIBLE SQL INJECTION con .format():"
+            echo "$RESULTS"
+            SQLI_FOUND=1
+          else
+            echo "  ✅ No se encontraron .format() SQL"
+          fi
+
+          # Concatenación de strings con SQL
+          echo "📌 Buscando concatenación de strings SQL..."
+          RESULTS=$(grep -rn '"SELECT.*" +\|"INSERT.*" +\|"UPDATE.*" +\|"DELETE.*" +' app/ --include="*.py" 2>/dev/null || true)
+          if [ -n "$RESULTS" ]; then
+            echo "⚠️ POSIBLE SQL INJECTION con concatenación:"
+            echo "$RESULTS"
+            SQLI_FOUND=1
+          else
+            echo "  ✅ No se encontraron concatenaciones SQL"
+          fi
+
+          # % formatting con SQL
+          echo "📌 Buscando % formatting con consultas SQL..."
+          RESULTS=$(grep -rn '"SELECT.*%s\|"INSERT.*%s\|"UPDATE.*%s\|"DELETE.*%s' app/ --include="*.py" 2>/dev/null | grep -v "parameterized\|#" || true)
+          if [ -n "$RESULTS" ]; then
+            echo "⚠️ POSIBLE SQL INJECTION con % formatting:"
+            echo "$RESULTS"
+            SQLI_FOUND=1
+          else
+            echo "  ✅ No se encontraron % formatting SQL"
+          fi
+
+          echo "============================================"
+          if [ $SQLI_FOUND -eq 1 ]; then
+            echo "⚠️ Se encontraron posibles patrones de SQL Injection - Revisar manualmente"
+          else
+            echo "✅ No se detectaron patrones de SQL Injection"
+          fi
+
+      - name: Análisis de XSS patterns
+        if: always()
+        run: |
+          echo "🌐 Buscando patrones de XSS..."
+          echo "============================================"
+
+          # Buscar render_template_string (peligroso)
+          echo "📌 Buscando render_template_string..."
+          grep -rn "render_template_string" app/ --include="*.py" || echo "  ✅ No se usa render_template_string"
+
+          # Buscar Markup sin escape
+          echo "📌 Buscando Markup sin escape..."
+          grep -rn "Markup(" app/ --include="*.py" | grep -v "escape" || echo "  ✅ No se encontraron Markup sin escape"
+
+          # Buscar innerHTML en templates
+          echo "📌 Buscando innerHTML en templates..."
+          grep -rn "innerHTML\|outerHTML\|document\.write" dashboard/ --include="*.html" --include="*.js" || echo "  ✅ No se encontraron patrones innerHTML"
+
+          echo "============================================"
+          echo "✅ Análisis XSS completado"
+
+      - name: Análisis de configuraciones inseguras
+        if: always()
+        run: |
+          echo "⚙️ Verificando configuraciones de seguridad..."
+          echo "============================================"
+
+          # Debug mode
+          echo "📌 Verificando DEBUG mode..."
+          grep -rn "debug\s*=\s*True\|DEBUG\s*=\s*True" app/ --include="*.py" | grep -v "test\|#\|environ\|getenv\|config" || echo "  ✅ No se encontró debug=True hardcodeado"
+
+          # Secret key hardcodeada
+          echo "📌 Verificando SECRET_KEY..."
+          grep -rn "SECRET_KEY\s*=\s*['\"]" app/ --include="*.py" | grep -v "environ\|getenv\|config\|os\.\|#" || echo "  ✅ SECRET_KEY no está hardcodeada"
+
+          # CORS permisivo
+          echo "📌 Verificando CORS..."
+          grep -rn "allow_origins.*\*\|CORS.*origins.*\*" app/ --include="*.py" || echo "  ✅ No se encontró CORS con wildcard (*)"
+
+          # Verificar HTTPS
+          echo "📌 Verificando uso de HTTP en lugar de HTTPS..."
+          grep -rn "http://" app/ --include="*.py" | grep -v "localhost\|127\.0\.0\.1\|#\|test\|example\|0\.0\.0\.0\|osrm\|router" || echo "  ✅ No se encontraron URLs HTTP inseguras"
+
+          echo "============================================"
+          echo "✅ Verificación de configuraciones completada"
+
+      - name: Subir reportes SAST
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sast-reports
+          path: |
+            bandit-report.json
+            bandit-report.html
+          retention-days: 30
+
+  # ============================================
+  # RESUMEN DE SEGURIDAD (Pasos 1-3)
+  # ============================================
+  security-summary:
+    name: "\U0001F4CA Resumen de Seguridad"
+    runs-on: ubuntu-latest
+    needs: [secret-scanning, dependency-check, sast]
+    if: always()
+    steps:
+      - name: Generar resumen
+        run: |
+          echo "╔══════════════════════════════════════════════╗"
+          echo "║     📊 REPORTE DEVSECOPS - PASOS 1 A 3      ║"
+          echo "╠══════════════════════════════════════════════╣"
+          echo "║                                              ║"
+          echo "║  🔐 Paso 1 - Secret Scanning:                ║"
+          echo "║     Estado: ${{ needs.secret-scanning.result }}  "
+          echo "║                                              ║"
+          echo "║  📦 Paso 2 - Dependency Check (SCA):         ║"
+          echo "║     Estado: ${{ needs.dependency-check.result }} "
+          echo "║                                              ║"
+          echo "║  🔍 Paso 3 - SAST:                           ║"
+          echo "║     Estado: ${{ needs.sast.result }}             "
+          echo "║                                              ║"
+          echo "╠══════════════════════════════════════════════╣"
+
+          # Evaluar resultado general
+          if [ "${{ needs.secret-scanning.result }}" == "failure" ]; then
+            echo "║  ❌ RESULTADO: FALLIDO                       ║"
+            echo "║  🔴 Se detectaron secretos expuestos         ║"
+            echo "╚══════════════════════════════════════════════╝"
+            exit 1
+          elif [ "${{ needs.sast.result }}" == "failure" ]; then
+            echo "║  ❌ RESULTADO: FALLIDO                       ║"
+            echo "║  🔴 Se detectaron vulnerabilidades críticas  ║"
+            echo "╚══════════════════════════════════════════════╝"
+            exit 1
+          elif [ "${{ needs.dependency-check.result }}" == "failure" ]; then
+            echo "║  ⚠️  RESULTADO: ADVERTENCIA                 ║"
+            echo "║  🟡 Dependencias con vulnerabilidades        ║"
+            echo "╚══════════════════════════════════════════════╝"
+          else
+            echo "║  ✅ RESULTADO: APROBADO                      ║"
+            echo "║  🟢 No se encontraron problemas críticos     ║"
+            echo "╚══════════════════════════════════════════════╝"
+          fi

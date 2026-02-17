@@ -103,3 +103,14 @@ osrm-ecuador/*.osrm*
 osrm-ecuador/*.pbf
 osrm-ecuador/*.osm
 osrm-ecuador/*.poly
+
+# ============================================
+# DevSecOps Reports
+# ============================================
+bandit-report.json
+bandit-report.html
+pip-audit-report.json
+trivy-results.sarif
+kics-results/
+semgrep-results/
+.zap/

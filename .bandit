@@ -1,0 +1,21 @@
+[bandit]
+# Directorios a analizar
+targets = app
+
+# Directorios a excluir del análisis
+exclude = tests,venv,.venv,env,migrations,__pycache__,documentacion
+
+# Análisis recursivo
+recursive = true
+
+# Nivel mínimo de severidad a reportar (LOW, MEDIUM, HIGH)
+severity = LOW
+
+# Nivel mínimo de confianza a reportar (LOW, MEDIUM, HIGH)
+confidence = LOW
+
+# Tests específicos a omitir (descomentar si es necesario)
+# B101: assert usado en tests
+# B104: bind a 0.0.0.0 (necesario para Docker)
+# B311: random no criptográfico (aceptable para datos no sensibles)
+skips = B101,B104

@@ -2,10 +2,16 @@
 
 ## 📍 Información General
 
-- **API Base URL**: `http://localhost:8000`
-- **Endpoint Crear Incidencia**: `POST /api/incidencias/`
-- **Endpoint Validar**: `POST /api/incidencias/{id}/validate`
-- **Endpoint Ver Rutas**: `GET /api/rutas/zona/{zona}`
+### URLs del API
+- **Desarrollo Local (Backend)**: `http://localhost:8000`
+- **Desarrollo Local (Red)**: `http://192.168.100.31:8000` *(para app móvil)*
+- **Producción (Render)**: `https://epagal-backend-routing-latest.onrender.com`
+
+### Endpoints
+- **Crear Incidencia**: `POST /api/incidencias/`
+- **Validar**: `POST /api/incidencias/{id}/validate`
+- **Ver Rutas**: `GET /api/rutas/zona/{zona}`
+- **Ver Ruta por ID**: `GET /api/rutas/{id}`
 
 ## 🎯 Sistema de Puntos
 

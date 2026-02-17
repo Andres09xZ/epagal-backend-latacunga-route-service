@@ -1,0 +1,47 @@
+title = "Gitleaks Config - EPAGAL Backend Latacunga"
+
+[allowlist]
+description = "Archivos y patrones permitidos"
+paths = [
+    '''\.env\.example''',
+    '''\.env\.test''',
+    '''tests/.*''',
+    '''\.gitleaks\.toml''',
+    '''requirements\.txt''',
+    '''package-lock\.json''',
+    '''documentacion/.*''',
+    '''database/.*\.sql''',
+    '''migrations/.*\.sql''',
+    '''insertar_puntos_fijos\.sql''',
+]
+
+# Reglas personalizadas para el proyecto
+[[rules]]
+id = "postgres-connection-string"
+description = "PostgreSQL Connection String"
+regex = '''postgresql://[^:]+:[^@]+@[^/]+/\w+'''
+tags = ["database", "postgresql"]
+
+[[rules]]
+id = "generic-api-key"
+description = "Generic API Key"
+regex = '''(?i)(api[_-]?key|apikey)\s*[:=]\s*['"][A-Za-z0-9]{20,}['"]'''
+tags = ["api", "key"]
+
+[[rules]]
+id = "jwt-secret"
+description = "JWT Secret Key"
+regex = '''(?i)(jwt[_-]?secret|secret[_-]?key)\s*[:=]\s*['"][^'"]{10,}['"]'''
+tags = ["jwt", "secret"]
+
+[[rules]]
+id = "render-api-key"
+description = "Render API Key"
+regex = '''rnd_[A-Za-z0-9]{20,}'''
+tags = ["render", "deploy"]
+
+[[rules]]
+id = "docker-hub-token"
+description = "Docker Hub Access Token"
+regex = '''dckr_pat_[A-Za-z0-9_-]{20,}'''
+tags = ["docker", "registry"]
