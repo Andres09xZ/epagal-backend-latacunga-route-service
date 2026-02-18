@@ -839,12 +839,143 @@ jobs:
           retention-days: 30
 
   # ============================================
+  # PASO 7: DAST (Dynamic Application Security Testing)
+  # ============================================
+  dast:
+    name: "DAST - OWASP ZAP"
+    runs-on: ubuntu-latest
+    needs: [secret-scanning, dependency-check, sast, sql-security, testing, container-security]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: OWASP ZAP - Escaneo pasivo de API en producción
+        uses: zaproxy/action-api-scan@v0.9.0
+        with:
+          target: "https://epagal-backend-routing-latest.onrender.com/openapi.json"
+          rules_file_name: ".zap/rules.tsv"
+          cmd_options: "-a -j"
+          fail_action: "false"
+        continue-on-error: true
+
+      - name: OWASP ZAP - Escaneo baseline de la app
+        uses: zaproxy/action-baseline@v0.14.0
+        with:
+          target: "https://epagal-backend-routing-latest.onrender.com/"
+          rules_file_name: ".zap/rules.tsv"
+          cmd_options: "-a -j"
+          fail_action: "warn"
+        continue-on-error: true
+
+      - name: Verificar endpoints críticos
+        run: |
+          echo "Verificación DAST de endpoints críticos..."
+          echo "============================================"
+
+          TARGET="https://epagal-backend-routing-latest.onrender.com"
+          ISSUES=0
+
+          # 1. Verificar headers de seguridad
+          echo "[1] Verificando headers de seguridad..."
+          HEADERS=$(curl -sI "$TARGET/health" 2>/dev/null || echo "")
+
+          if echo "$HEADERS" | grep -qi "x-content-type-options"; then
+            echo "  ✓ X-Content-Type-Options presente"
+          else
+            echo "  ⚠ X-Content-Type-Options ausente"
+            ISSUES=$((ISSUES+1))
+          fi
+
+          if echo "$HEADERS" | grep -qi "x-frame-options"; then
+            echo "  ✓ X-Frame-Options presente"
+          else
+            echo "  ⚠ X-Frame-Options ausente"
+            ISSUES=$((ISSUES+1))
+          fi
+
+          if echo "$HEADERS" | grep -qi "strict-transport-security"; then
+            echo "  ✓ Strict-Transport-Security presente"
+          else
+            echo "  ⚠ HSTS ausente"
+            ISSUES=$((ISSUES+1))
+          fi
+
+          # 2. Verificar que endpoints protegidos requieren auth
+          echo ""
+          echo "[2] Verificando protección de endpoints..."
+
+          # Endpoint que requiere autenticación
+          AUTH_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "$TARGET/api/auth/me" 2>/dev/null || echo "000")
+          if [ "$AUTH_RESPONSE" = "401" ] || [ "$AUTH_RESPONSE" = "403" ]; then
+            echo "  ✓ /api/auth/me requiere autenticación ($AUTH_RESPONSE)"
+          elif [ "$AUTH_RESPONSE" = "000" ]; then
+            echo "  ⚠ No se pudo conectar al servicio (puede estar suspendido - Render free tier)"
+          else
+            echo "  ✗ /api/auth/me NO requiere autenticación ($AUTH_RESPONSE)"
+            ISSUES=$((ISSUES+1))
+          fi
+
+          # 3. Verificar que no hay información sensible en respuestas de error
+          echo ""
+          echo "[3] Verificando manejo de errores..."
+
+          ERROR_RESPONSE=$(curl -s "$TARGET/api/ruta-inexistente-test-12345" 2>/dev/null || echo "")
+          if echo "$ERROR_RESPONSE" | grep -qi "traceback\|stack trace\|internal server error.*detail"; then
+            echo "  ✗ Se expone información de stack trace en errores"
+            ISSUES=$((ISSUES+1))
+          else
+            echo "  ✓ No se expone stack trace en errores"
+          fi
+
+          # 4. Verificar CORS
+          echo ""
+          echo "[4] Verificando configuración CORS..."
+
+          CORS_RESPONSE=$(curl -sI -H "Origin: https://malicious-site.com" "$TARGET/health" 2>/dev/null || echo "")
+          if echo "$CORS_RESPONSE" | grep -qi "access-control-allow-origin: https://malicious-site.com"; then
+            echo "  ✗ CORS acepta orígenes arbitrarios"
+            ISSUES=$((ISSUES+1))
+          else
+            echo "  ✓ CORS no acepta orígenes arbitrarios"
+          fi
+
+          # 5. Verificar HTTPS redirect
+          echo ""
+          echo "[5] Verificando HTTPS..."
+
+          HTTP_CODE=$(curl -sI -o /dev/null -w "%{http_code}" "http://epagal-backend-routing-latest.onrender.com/" 2>/dev/null || echo "000")
+          if [ "$HTTP_CODE" = "301" ] || [ "$HTTP_CODE" = "302" ] || [ "$HTTP_CODE" = "000" ]; then
+            echo "  ✓ HTTP redirige a HTTPS o no es accesible"
+          else
+            echo "  ⚠ HTTP responde directamente sin redirect ($HTTP_CODE)"
+            ISSUES=$((ISSUES+1))
+          fi
+
+          echo ""
+          echo "============================================"
+          echo "DAST completado: $ISSUES advertencias encontradas"
+          if [ $ISSUES -gt 5 ]; then
+            echo "Demasiadas advertencias de seguridad detectadas"
+            exit 1
+          fi
+
+      - name: Subir reporte ZAP
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-scan-report
+          path: report_html.html
+          retention-days: 30
+          if-no-files-found: ignore
+
+  # ============================================
   # RESUMEN DE SEGURIDAD COMPLETO
   # ============================================
   security-summary:
     name: "Resumen de Seguridad DevSecOps"
     runs-on: ubuntu-latest
-    needs: [secret-scanning, dependency-check, sast, sql-security, testing, container-security]
+    needs: [secret-scanning, dependency-check, sast, sql-security, testing, container-security, dast]
     if: always()
     steps:
       - name: Generar resumen completo
@@ -870,6 +1001,9 @@ jobs:
           echo ""
           echo "  Paso 6 - Container Security:"
           echo "     Estado: ${{ needs.container-security.result }}"
+          echo ""
+          echo "  Paso 7 - DAST (OWASP ZAP):"
+          echo "     Estado: ${{ needs.dast.result }}"
           echo ""
           echo "=============================================="
 
@@ -905,6 +1039,12 @@ jobs:
           if [ "${{ needs.container-security.result }}" == "failure" ]; then
             echo "  ✗ FALLO: Vulnerabilidades en contenedor"
             FAILED=1
+          fi
+
+          # DAST es informativo, no bloquea (la app puede estar suspendida en Render free tier)
+          if [ "${{ needs.dast.result }}" == "failure" ]; then
+            echo "  ⚠ ADVERTENCIA: DAST detectó problemas"
+            WARNINGS=1
           fi
 
           echo ""

@@ -2,13 +2,16 @@
 Aplicación principal FastAPI
 Sistema de Gestión de Incidencias - EPAGAL Latacunga
 ENDPOINTS: /api/reportes, /api/operadores, /api/horarios, /api/tracking
-v2.0.1 - 2026-01-04: Horarios y Tracking GPS activados
+v2.0.2 - Rate limiting, security headers, DevSecOps hardening
 """
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 import os
 import logging
 from datetime import datetime
@@ -38,13 +41,20 @@ try:
 except Exception as e:
     logger.warning("DB unavailable during startup: %s", e)
 
+# ── Rate Limiter ──────────────────────────────────────────────
+limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
+
 app = FastAPI(
     title="Sistema de Gestión de Incidencias - EPAGAL Latacunga",
     description="API para gestión de reportes ciudadanos, rutas optimizadas y tracking GPS en tiempo real",
-    version="2.0.1",
+    version="2.0.2",
     docs_url="/docs",
     redoc_url="/redoc"
 )
+
+# Registrar el rate limiter y su handler de error
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Lista base de orígenes confiables
 allowed_origins = [
@@ -94,6 +104,23 @@ class MobileCORSMiddleware(BaseHTTPMiddleware):
 # Agregar el middleware custom DESPUÉS del CORSMiddleware estándar
 app.add_middleware(MobileCORSMiddleware)
 
+
+# ── Middleware de Security Headers ────────────────────────────
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Agrega headers de seguridad a todas las respuestas (OWASP best practices)"""
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "geolocation=(self), camera=(), microphone=()"
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
 # Incluir todos los routers con prefijo /api
 app.include_router(auth.router, prefix="/api")
 app.include_router(conductores.router, prefix="/api")
@@ -118,7 +145,7 @@ def root():
     """Endpoint raíz - Información básica de la API"""
     return {
         "message": "API Sistema de Gestión de Incidencias - EPAGAL Latacunga",
-        "version": "2.0.1",
+        "version": "2.0.2",
         "docs": "/docs",
         "redoc": "/redoc",
         "dashboard": "/dashboard/" if os.path.exists(dashboard_path) else "No disponible",
@@ -157,7 +184,7 @@ def health_check():
     return {
         "status": overall_status,
         "service": "EPAGAL Backend - Sistema de Gestión de Incidencias",
-        "version": "2.0.1",
+        "version": "2.0.2",
         "timestamp": datetime.utcnow().isoformat(),
         "environment": environment,
         "python_version": platform.python_version(),

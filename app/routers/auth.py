@@ -3,9 +3,11 @@ Router de Autenticación
 Endpoints para login, logout y gestión de sesión
 Fecha: 2025-12-13
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.database import get_db
 from app.schemas.conductores import (
@@ -19,6 +21,9 @@ router = APIRouter(prefix="/auth", tags=["Autenticación"])
 
 # Esquema HTTPBearer para tokens (más simple en Swagger)
 security = HTTPBearer()
+
+# Rate limiter local (usa el mismo backend del app.state.limiter)
+limiter = Limiter(key_func=get_remote_address)
 
 
 async def get_current_user(
@@ -101,12 +106,16 @@ async def get_current_conductor(
 
 
 @router.post("/login", response_model=TokenResponse, summary="Iniciar sesión")
+@limiter.limit("5/minute")
 async def login(
+    request: Request,
     credentials: LoginRequest,
     db: Session = Depends(get_db)
 ):
     """
     Endpoint de login con username y contraseña
+    
+    **Rate limit:** 5 intentos por minuto por IP (protección contra fuerza bruta).
     
     **Usuarios de prueba:**
     - admin / admin123 (Administrador)
@@ -119,7 +128,9 @@ async def login(
 
 
 @router.post("/login/form", response_model=TokenResponse, summary="Login con OAuth2")
+@limiter.limit("5/minute")
 async def login_form(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):

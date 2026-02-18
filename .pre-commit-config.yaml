@@ -1,0 +1,50 @@
+# Pre-commit hooks - Validación local antes de cada commit
+# Fase 2 (Build) del ciclo DevSecOps
+# Instalación: pip install pre-commit && pre-commit install
+# Docs: https://pre-commit.com/
+
+repos:
+  # Gitleaks - Detectar secretos antes del commit
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+
+  # Bandit - Análisis de seguridad Python
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.9
+    hooks:
+      - id: bandit
+        args: ["-r", "app/", "-ll", "-ii", "--skip", "B101,B104"]
+        pass_filenames: false
+
+  # Flake8 - Linter de calidad de código
+  - repo: https://github.com/PyCQA/flake8
+    rev: 7.1.1
+    hooks:
+      - id: flake8
+        args: ["--max-line-length=120", "--select=E9,F63,F7,F82,W6"]
+        files: ^app/
+
+  # Trailing whitespace y archivos
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: '\.md$'
+      - id: end-of-file-fixer
+        exclude: '\.md$'
+      - id: check-yaml
+      - id: check-json
+        exclude: 'package-lock\.json'
+      - id: check-added-large-files
+        args: ["--maxkb=1000"]
+      - id: detect-private-key
+      - id: check-merge-conflict
+
+  # Verificar que no se suba .env
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-case-conflict
+      - id: check-symlinks
