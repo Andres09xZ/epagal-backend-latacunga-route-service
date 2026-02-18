@@ -28,6 +28,6 @@ haversine==2.8.*         # Cálculo rápido de distancias GPS
 pytest==7.4.*            # Framework de testing
 pytest-bdd==6.1.*        # BDD con sintaxis Gherkin
 pytest-asyncio==0.21.*   # Para tests asíncronos de FastAPI
-httpx==0.25.*            # Cliente HTTP async para tests
+httpx==0.28.*            # Cliente HTTP async para tests
 faker==20.1.*            # Generar datos de prueba realistas
 freezegun==1.4.*         # Mockear tiempo en tests
