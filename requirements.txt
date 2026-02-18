@@ -11,7 +11,7 @@ geopy==2.4.*
 ortools==9.14.*          # Mucho mejor que PuLP para VRPTW grande
 requests==2.32.*
 python-multipart==0.0.9  # Para subir fotos desde el móvil
-geoalchemy2==0.15.*      # Para trabajar con geometrías PostGIS
+geoalchemy2==0.18.*      # Para trabajar con geometrías PostGIS
 pyproj==3.7.*            # Para conversiones de coordenadas UTM (3.7+ tiene wheels para Windows)
 passlib[bcrypt]==1.7.*   # Para hash de contraseñas con bcrypt
 python-jose[cryptography]==3.3.*  # Para JWT tokens
