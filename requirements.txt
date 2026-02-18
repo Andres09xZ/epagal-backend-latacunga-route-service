@@ -30,4 +30,4 @@ pytest-bdd==6.1.*        # BDD con sintaxis Gherkin
 pytest-asyncio==0.21.*   # Para tests asíncronos de FastAPI
 httpx==0.25.*            # Cliente HTTP async para tests
 faker==20.1.*            # Generar datos de prueba realistas
-freezegun==1.4.*         # Mockear tiempo en tests
+freezegun==1.5.*         # Mockear tiempo en tests
