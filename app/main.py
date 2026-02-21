@@ -1,7 +1,7 @@
 """
 Aplicación principal FastAPI
 Sistema de Gestión de Incidencias - EPAGAL Latacunga
-ENDPOINTS: /api/reportes, /api/operadores, /api/horarios, /api/tracking
+ENDPOINTS: /api/incidencias, /api/operadores, /api/horarios, /api/tracking
 v2.0.2 - Rate limiting, security headers, DevSecOps hardening
 """
 from fastapi import FastAPI, Request
@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 from app.database import engine, Base
 from app.routers import (
     incidencias, rutas, auth, conductores, tasks, notifications,
-    reports, reportes, operadores, horarios, tracking, geofencing
+    reports, operadores, horarios, tracking, geofencing
 )
 
 logger.info("Iniciando aplicación FastAPI...")
@@ -129,7 +129,6 @@ app.include_router(rutas.router, prefix="/api")
 app.include_router(tasks.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
 app.include_router(reports.router, prefix="/api")
-app.include_router(reportes.router, prefix="/api")
 app.include_router(operadores.router, prefix="/api")
 app.include_router(horarios.router, prefix="/api")
 app.include_router(tracking.router, prefix="/api")
@@ -139,6 +138,11 @@ app.include_router(geofencing.router)  # Ya tiene su propio prefix
 dashboard_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dashboard")
 if os.path.exists(dashboard_path):
     app.mount("/dashboard", StaticFiles(directory=dashboard_path, html=True), name="dashboard")
+
+# Montar directorio de fotos de incidencias (subidas vía /api/incidencias/foto)
+fotos_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "fotos_incidencias")
+os.makedirs(fotos_path, exist_ok=True)
+app.mount("/fotos_incidencias", StaticFiles(directory=fotos_path), name="fotos_incidencias")
 
 @app.get("/")
 def root():

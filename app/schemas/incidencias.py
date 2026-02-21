@@ -16,6 +16,7 @@ class TipoIncidencia(str, Enum):
 
 class EstadoIncidencia(str, Enum):
     """Estados posibles de una incidencia"""
+    EMITIDO = "emitido"
     PENDIENTE = "pendiente"
     VALIDADA = "validada"  # Incidencia validada antes de asignarse
     ASIGNADA = "asignada"
@@ -32,11 +33,11 @@ class ZonaIncidencia(str, Enum):
 class IncidenciaCreate(BaseModel):
     """Schema para crear una nueva incidencia"""
     tipo: TipoIncidencia
-    descripcion: Optional[str] = None
-    foto_url: Optional[str] = None
+    descripcion: str = Field(..., min_length=10, description="Descripción de la incidencia (mínimo 10 caracteres)")
+    foto_url: str = Field(..., description="URL de la foto adjunta (obligatoria)")
     lat: float = Field(..., ge=-90, le=90, description="Latitud entre -90 y 90")
     lon: float = Field(..., ge=-180, le=180, description="Longitud entre -180 y 180")
-    usuario_id: Optional[int] = None
+    usuario_id: int = Field(..., description="ID del ciudadano que reporta la incidencia")
 
     @field_validator('lat')
     @classmethod
@@ -72,8 +73,9 @@ class IncidenciaCreate(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "tipo": "acopio",
-                "descripcion": "Punto de acopio en esquina principal",
+                "tipo": "animal_muerto",
+                "descripcion": "Animal muerto en la calle principal frente al parque",
+                "foto_url": "https://storage.epagal.gob.ec/fotos/incidencia_001.jpg",
                 "lat": -0.9344,
                 "lon": -78.6156,
                 "usuario_id": 123

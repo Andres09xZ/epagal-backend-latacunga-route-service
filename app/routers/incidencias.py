@@ -1,7 +1,10 @@
 """
 Router de incidencias para FastAPI
 """
-from fastapi import APIRouter, Depends, HTTPException, status  # type: ignore[import]
+import os
+import shutil
+import uuid as uuid_lib
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status  # type: ignore[import]
 from sqlalchemy.orm import Session  # type: ignore[import]
 from sqlalchemy import func  # type: ignore[import]
 from typing import Annotated, List, Optional
@@ -18,6 +21,16 @@ from app.schemas.incidencias import (
 from app.services.incidencia_service import IncidenciaService
 
 router = APIRouter(prefix="/incidencias", tags=["incidencias"])
+
+# Tiempo estimado de respuesta municipal por tipo (en horas)
+TIEMPO_ESTIMADO_HORAS = {
+    TipoIncidencia.ACOPIO: 24,
+    TipoIncidencia.ZONA_CRITICA: 4,
+    TipoIncidencia.ANIMAL_MUERTO: 8,
+}
+
+# Directorio para almacenar fotos subidas localmente
+FOTOS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "fotos_incidencias")
 
 
 @router.get("/stats")
@@ -134,15 +147,17 @@ async def listar_incidencias(
     return query.offset(skip).limit(limit).all()
 
 
-@router.post("/", response_model=IncidenciaResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", status_code=status.HTTP_201_CREATED)
 async def crear_incidencia(
     incidencia: IncidenciaCreate,
     db: Annotated[Session, Depends(get_db)]
 ):
     """
-    Crear nueva incidencia con autodetección de zona y gravedad
+    Crear nueva incidencia con autodetección de zona y gravedad.
     - La zona se determina automáticamente según las coordenadas
     - La gravedad se asigna según el tipo de incidencia
+    - El estado inicial es 'emitido'
+    - Se retorna el número único de reporte y el tiempo estimado de respuesta
     """
     # Validar que lat y lon no sean None
     if incidencia.lat is None or incidencia.lon is None:
@@ -175,7 +190,7 @@ async def crear_incidencia(
         geom=geom,
         zona=zona,
         usuario_id=incidencia.usuario_id,
-        estado="pendiente",
+        estado="emitido",
         reportado_en=datetime.utcnow(),
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
@@ -183,7 +198,27 @@ async def crear_incidencia(
     db.add(new_incident)
     db.commit()
     db.refresh(new_incident)
-    return new_incident
+
+    tiempo_horas = TIEMPO_ESTIMADO_HORAS.get(incidencia.tipo, 24)
+
+    return {
+        "numero_reporte": new_incident.id,
+        "estado": new_incident.estado,
+        "tipo": new_incident.tipo,
+        "gravedad": new_incident.gravedad,
+        "zona": new_incident.zona,
+        "descripcion": new_incident.descripcion,
+        "foto_url": new_incident.foto_url,
+        "lat": new_incident.lat,
+        "lon": new_incident.lon,
+        "usuario_id": new_incident.usuario_id,
+        "reportado_en": new_incident.reportado_en,
+        "tiempo_estimado_horas": tiempo_horas,
+        "mensaje_confirmacion": (
+            f"Reporte #{new_incident.id} recibido exitosamente. "
+            f"El municipio atenderá su solicitud en aproximadamente {tiempo_horas} horas."
+        )
+    }
 
 
 @router.get("/{incidencia_id}", response_model=IncidenciaResponse)
@@ -243,7 +278,7 @@ async def validar_incidencia(
     if not incidencia:
         raise HTTPException(status_code=404, detail="Incidencia no encontrada")
     
-    if incidencia.estado != "pendiente":
+    if incidencia.estado not in ("pendiente", "emitido"):
         raise HTTPException(
             status_code=400, 
             detail=f"No se puede validar una incidencia en estado '{incidencia.estado}'"
@@ -274,3 +309,48 @@ async def validar_incidencia(
             status_code=500,
             detail=f"Error al validar incidencia: {str(e)}"
         )
+
+
+@router.post("/foto", status_code=status.HTTP_201_CREATED)
+async def subir_foto_incidencia(file: UploadFile = File(...)):
+    """
+    Subir una foto para adjuntar a una incidencia.
+    
+    - Acepta imágenes JPEG, PNG o WEBP desde la cámara o galería del móvil.
+    - Retorna la URL pública que debe enviarse en el campo `foto_url` al crear la incidencia.
+    - Tamaño máximo recomendado: 5 MB.
+    """
+    TIPOS_PERMITIDOS = {"image/jpeg", "image/png", "image/webp"}
+    if file.content_type not in TIPOS_PERMITIDOS:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=f"Tipo de archivo no soportado: '{file.content_type}'. Use JPEG, PNG o WEBP."
+        )
+
+    # Leer contenido y verificar tamaño (máx 5 MB)
+    contenido = await file.read()
+    MAX_BYTES = 5 * 1024 * 1024  # 5 MB
+    if len(contenido) > MAX_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="La foto supera el tamaño máximo permitido de 5 MB."
+        )
+
+    # Generar nombre único y guardar en disco
+    extension = file.filename.rsplit(".", 1)[-1] if file.filename and "." in file.filename else "jpg"
+    nombre_archivo = f"{uuid_lib.uuid4().hex}.{extension}"
+    os.makedirs(FOTOS_DIR, exist_ok=True)
+    ruta_archivo = os.path.join(FOTOS_DIR, nombre_archivo)
+
+    with open(ruta_archivo, "wb") as f:
+        f.write(contenido)
+
+    # Retornar la URL relativa que se almacenará en foto_url
+    foto_url = f"/fotos_incidencias/{nombre_archivo}"
+    return {
+        "foto_url": foto_url,
+        "nombre_archivo": nombre_archivo,
+        "tamanio_bytes": len(contenido),
+        "tipo_contenido": file.content_type,
+        "mensaje": "Foto subida correctamente. Use 'foto_url' al registrar la incidencia."
+    }
