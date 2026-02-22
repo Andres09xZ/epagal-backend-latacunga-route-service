@@ -21,7 +21,7 @@ APScheduler>=3.10.0,<4.0  # Scheduler periódico para agrupación automática de
 scikit-learn==1.5.*      # DBSCAN clustering espacial de incidencias por distancia
 
 # WebSocket y Tracking GPS
-websockets==12.0.*       # Protocolo WebSocket async
+websockets==16.0.*       # Protocolo WebSocket async
 redis==5.0.*             # Cache en memoria para posiciones GPS
 python-socketio==5.10.*  # Socket.IO para compatibilidad bidireccional
 haversine==2.8.*         # Cálculo rápido de distancias GPS
