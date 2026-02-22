@@ -10,7 +10,7 @@ import pyproj
 from pyproj import Transformer
 import logging
 
-from app.models import Incidencia, Config, RutaGenerada, RutaDetalle
+from app.models import Incidencia, Config, RutaGenerada, RutaDetalle, EvidenciaFinal
 from app.schemas.incidencias import IncidenciaCreate, TipoIncidencia
 
 # Configurar logger
@@ -575,3 +575,99 @@ class IncidenciaService:
             "por_tipo": por_tipo,
             "por_zona": por_zona
         }
+
+    @staticmethod
+    def finalizar_con_evidencia(
+        db: Session,
+        incidencia_id: int,
+        foto_urls: Optional[List[str]],
+        comentario: Optional[str],
+        usuario_id: Optional[int] = None,
+    ) -> Tuple["Incidencia", List["EvidenciaFinal"]]:
+        """
+        Finaliza una incidencia registrando evidencia fotográfica y/o comentario.
+
+        Reglas de negocio:
+        - Solo se puede finalizar si el estado es 'en_ejecucion'.
+        - Se requiere al menos una foto O un comentario.
+        - Cambia el estado a 'finalizado' (solo lectura posterior).
+        - Registra cada foto como una fila en evidencias_finales con timestamp.
+        - Si hay comentario sin foto, crea una fila de evidencia sin foto_url.
+
+        Returns:
+            (incidencia_actualizada, lista_de_evidencias)
+
+        Raises:
+            ValueError: si el estado es incorrecto o faltan datos obligatorios.
+        """
+        incidencia = db.query(Incidencia).filter(Incidencia.id == incidencia_id).first()
+        if not incidencia:
+            raise ValueError(f"Incidencia {incidencia_id} no encontrada")
+
+        # Bloquear si ya está finalizada u otro estado no operable
+        if incidencia.estado == "finalizado":
+            raise ValueError(
+                f"La incidencia #{incidencia_id} ya fue finalizada. "
+                "No se permiten cambios posteriores (solo lectura)."
+            )
+        if incidencia.estado != "en_ejecucion":
+            raise ValueError(
+                f"Solo se pueden finalizar incidencias en estado 'en_ejecucion'. "
+                f"Estado actual: '{incidencia.estado}'"
+            )
+
+        # Validar que haya al menos una evidencia
+        tiene_fotos = foto_urls and len(foto_urls) > 0
+        tiene_comentario = comentario and len(comentario.strip()) >= 10
+        if not tiene_fotos and not tiene_comentario:
+            raise ValueError(
+                "Se requiere al menos una foto de evidencia o un comentario "
+                "detallado (mínimo 10 caracteres) para finalizar la incidencia."
+            )
+
+        ahora = datetime.utcnow()
+        evidencias_creadas: List[EvidenciaFinal] = []
+
+        # Registrar cada foto como evidencia individual
+        if tiene_fotos:
+            for foto_url in foto_urls:
+                ev = EvidenciaFinal(
+                    incidencia_id=incidencia_id,
+                    foto_url=foto_url,
+                    comentario=comentario if not evidencias_creadas else None,  # comentario solo en la primera
+                    subido_por_usuario_id=usuario_id,
+                    timestamp=ahora,
+                    created_at=ahora,
+                )
+                db.add(ev)
+                evidencias_creadas.append(ev)
+        else:
+            # Sin fotos: registrar solo como comentario
+            ev = EvidenciaFinal(
+                incidencia_id=incidencia_id,
+                foto_url=None,
+                comentario=comentario,
+                subido_por_usuario_id=usuario_id,
+                timestamp=ahora,
+                created_at=ahora,
+            )
+            db.add(ev)
+            evidencias_creadas.append(ev)
+
+        # Cambiar estado a finalizado (bloquea ediciones futuras)
+        incidencia.estado = "finalizado"
+        incidencia.updated_at = ahora
+
+        db.commit()
+        db.refresh(incidencia)
+        for ev in evidencias_creadas:
+            db.refresh(ev)
+
+        logger.info(
+            f"✅ Incidencia #{incidencia_id} FINALIZADA. "
+            f"Evidencias: {len(evidencias_creadas)} | "
+            f"Usuario: {usuario_id} | "
+            f"Fotos: {len(foto_urls) if tiene_fotos else 0}"
+        )
+
+        return incidencia, evidencias_creadas

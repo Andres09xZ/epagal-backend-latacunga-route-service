@@ -171,3 +171,58 @@ class NotificacionService:
         # En producción, esto consultaría la base de datos
         # SELECT * FROM notificaciones ORDER BY timestamp DESC
         return []
+
+    @staticmethod
+    def notificar_incidencia_finalizada(
+        incidencia_id: int,
+        tipo: str,
+        zona: str,
+        usuario_id: Optional[int] = None,
+    ) -> Dict:
+        """
+        Notifica al ciudadano que su reporte ha sido finalizado y resuelto.
+
+        En producción se integraría con:
+        - Push notification (Firebase/OneSignal) al dispositivo del ciudadano
+        - Email de confirmación
+        - SMS
+
+        Args:
+            incidencia_id: ID de la incidencia finalizada
+            tipo: Tipo de incidencia (acopio, zona_critica, animal_muerto)
+            zona: Zona donde ocurrió
+            usuario_id: ID del ciudadano que reportó (para dirigir la notificación)
+
+        Returns:
+            Dict con el mensaje y metadatos de la notificación
+        """
+        tipo_legible = tipo.replace("_", " ").title()
+
+        mensaje_ciudadano = (
+            f"✅ Tu reporte #{incidencia_id} ha sido finalizado – "
+            "gracias por tu colaboración. "
+            f"El problema de {tipo_legible} en la zona {zona.upper()} "
+            "ha sido atendido por el equipo municipal de EPAGAL."
+        )
+
+        notificacion = {
+            "tipo": "INCIDENCIA_FINALIZADA",
+            "incidencia_id": incidencia_id,
+            "tipo_incidencia": tipo,
+            "zona": zona.upper(),
+            "usuario_id": usuario_id,
+            "timestamp": datetime.utcnow().isoformat(),
+            "canal": "push_notification",
+            "mensaje": mensaje_ciudadano,
+        }
+
+        logger.info(
+            f"📢 NOTIFICACIÓN CIUDADANO (usuario_id={usuario_id}): "
+            f"Reporte #{incidencia_id} finalizado — {tipo_legible} zona {zona}"
+        )
+
+        # En producción:
+        # await firebase_client.send(user_token, titulo="Reporte finalizado", body=mensaje_ciudadano)
+        # await email_client.send(usuario.email, subject="Tu reporte fue atendido", body=...)
+
+        return notificacion

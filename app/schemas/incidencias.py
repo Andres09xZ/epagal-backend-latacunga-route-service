@@ -2,7 +2,7 @@
 Schemas Pydantic para incidencias
 """
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from enum import Enum
 
@@ -127,3 +127,71 @@ class IncidenciaStats(BaseModel):
     completadas: int
     por_tipo: dict
     por_zona: dict
+
+
+# ====================== EVIDENCIAS DE FINALIZACIÓN ======================
+
+class EvidenciaFinalResponse(BaseModel):
+    """Schema de respuesta para una evidencia de finalización"""
+    id: int
+    incidencia_id: int
+    foto_url: Optional[str]
+    comentario: Optional[str]
+    subido_por_usuario_id: Optional[int]
+    timestamp: datetime
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class FinalizarConEvidenciaRequest(BaseModel):
+    """
+    Request para finalizar una incidencia con evidencia.
+    Se requiere al menos foto_url O comentario.
+    """
+    foto_urls: Optional[List[str]] = Field(
+        default=None,
+        description="Lista de URLs de fotos de evidencia (al menos 1 requerida si no hay comentario)"
+    )
+    comentario: Optional[str] = Field(
+        default=None,
+        min_length=10,
+        description="Descripción de la acción realizada (obligatorio si no hay fotos)"
+    )
+    usuario_id: Optional[int] = Field(
+        default=None,
+        description="ID del usuario/operador que finaliza la incidencia"
+    )
+
+    @field_validator('foto_urls')
+    @classmethod
+    def validar_foto_urls(cls, v):
+        if v is not None and len(v) == 0:
+            raise ValueError("La lista de fotos no puede estar vacía. Proporcione al menos una URL o use null.")
+        return v
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "foto_urls": [
+                    "/fotos_incidencias/evidencia_antes_abc123.jpg",
+                    "/fotos_incidencias/evidencia_despues_def456.jpg"
+                ],
+                "comentario": "Se removió el animal muerto y se sanitizó el área con cal viva.",
+                "usuario_id": 1
+            }
+        }
+
+
+class IncidenciaFinalizadaResponse(BaseModel):
+    """Schema de respuesta completa al finalizar una incidencia"""
+    incidencia_id: int
+    estado: str
+    tipo: str
+    zona: Optional[str]
+    evidencias_registradas: int
+    comentario_final: Optional[str]
+    fecha_finalizacion: datetime
+    notificacion_ciudadano: str
+    mensaje: str

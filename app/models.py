@@ -52,6 +52,7 @@ class Incidencia(Base):
 
     # Relaciones
     detalles_ruta = relationship("RutaDetalle", back_populates="incidencia")
+    evidencias = relationship("EvidenciaFinal", back_populates="incidencia", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Incidencia(id={self.id}, tipo={self.tipo}, gravedad={self.gravedad}, estado={self.estado})>"
@@ -486,3 +487,27 @@ class SuspensionHorario(Base):
 
     def __repr__(self):
         return f"<SuspensionHorario(id={self.id}, horario={self.horario_id}, fecha={self.fecha_suspension})>"
+
+
+class EvidenciaFinal(Base):
+    """
+    Modelo para evidencias de finalización de incidencias.
+    Registra fotos y comentarios subidos al cerrar una incidencia.
+    Una incidencia puede tener múltiples evidencias (varias fotos).
+    """
+    __tablename__ = "evidencias_finales"
+
+    id = Column(Integer, primary_key=True, index=True)
+    incidencia_id = Column(Integer, ForeignKey('incidencias.id', ondelete='CASCADE'), nullable=False, index=True)
+    foto_url = Column(String(500), nullable=True)          # URL de la foto de evidencia
+    comentario = Column(Text, nullable=True)               # Descripción de la acción realizada
+    subido_por_usuario_id = Column(Integer, ForeignKey('usuarios.id', ondelete='SET NULL'), nullable=True)
+    timestamp = Column(TIMESTAMP, default=datetime.utcnow, nullable=False)
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+
+    # Relaciones
+    incidencia = relationship("Incidencia", back_populates="evidencias")
+    subido_por = relationship("Usuario", foreign_keys=[subido_por_usuario_id])
+
+    def __repr__(self):
+        return f"<EvidenciaFinal(id={self.id}, incidencia_id={self.incidencia_id}, foto={self.foto_url})>"

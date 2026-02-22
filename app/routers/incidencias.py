@@ -16,7 +16,10 @@ from app.schemas.incidencias import (
     IncidenciaCreate, 
     IncidenciaResponse, 
     IncidenciaUpdate,
-    TipoIncidencia
+    TipoIncidencia,
+    FinalizarConEvidenciaRequest,
+    EvidenciaFinalResponse,
+    IncidenciaFinalizadaResponse,
 )
 from app.services.incidencia_service import IncidenciaService
 
@@ -309,6 +312,92 @@ async def validar_incidencia(
             status_code=500,
             detail=f"Error al validar incidencia: {str(e)}"
         )
+
+
+@router.post("/{incidencia_id}/finalizar", status_code=status.HTTP_200_OK)
+async def finalizar_incidencia_con_evidencia(
+    incidencia_id: int,
+    payload: FinalizarConEvidenciaRequest,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """
+    Finaliza un reporte de incidencia con evidencia fotográfica y/o comentario.
+
+    **Criterios de aceptación:**
+    - Solo disponible para incidencias en estado `en_ejecucion`.
+    - Requiere al menos **1 foto** (`foto_urls`) o un **comentario** de ≥10 caracteres.
+    - Cambia automáticamente el estado a `finalizado` (solo lectura posterior).
+    - Registra cada foto con timestamp en la tabla `evidencias_finales`.
+    - Simula notificación al ciudadano: *"Tu reporte #XXX ha sido finalizado"*.
+    - Bloquea cualquier modificación futura una vez finalizado.
+    """
+    from app.services.notificacion_service import NotificacionService
+
+    try:
+        incidencia, evidencias = IncidenciaService.finalizar_con_evidencia(
+            db=db,
+            incidencia_id=incidencia_id,
+            foto_urls=payload.foto_urls,
+            comentario=payload.comentario,
+            usuario_id=payload.usuario_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al finalizar incidencia: {str(exc)}")
+
+    # Notificación al ciudadano
+    notif = NotificacionService.notificar_incidencia_finalizada(
+        incidencia_id=incidencia.id,
+        tipo=incidencia.tipo,
+        zona=incidencia.zona or "desconocida",
+        usuario_id=incidencia.usuario_id,
+    )
+
+    # Comentario final consolidado
+    comentario_final = payload.comentario or (
+        evidencias[0].comentario if evidencias and evidencias[0].comentario else None
+    )
+
+    return {
+        "incidencia_id": incidencia.id,
+        "estado": incidencia.estado,
+        "tipo": incidencia.tipo,
+        "zona": incidencia.zona,
+        "evidencias_registradas": len(evidencias),
+        "comentario_final": comentario_final,
+        "fecha_finalizacion": incidencia.updated_at,
+        "notificacion_ciudadano": notif["mensaje"],
+        "mensaje": (
+            f"✅ Reporte #{incidencia.id} finalizado correctamente. "
+            f"{len(evidencias)} evidencia(s) registrada(s). "
+            "No se permiten cambios posteriores."
+        ),
+    }
+
+
+@router.get("/{incidencia_id}/evidencias", response_model=List[EvidenciaFinalResponse])
+async def listar_evidencias_incidencia(
+    incidencia_id: int,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """
+    Lista todas las evidencias fotográficas y comentarios registrados
+    al finalizar una incidencia.
+    """
+    from app.models import EvidenciaFinal
+    incidencia = db.query(Incidencia).filter(Incidencia.id == incidencia_id).first()
+    if not incidencia:
+        raise HTTPException(status_code=404, detail="Incidencia no encontrada")
+
+    evidencias = (
+        db.query(EvidenciaFinal)
+        .filter(EvidenciaFinal.incidencia_id == incidencia_id)
+        .order_by(EvidenciaFinal.timestamp.asc())
+        .all()
+    )
+    return evidencias
 
 
 @router.post("/foto", status_code=status.HTTP_201_CREATED)
