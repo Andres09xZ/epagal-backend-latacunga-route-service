@@ -81,8 +81,30 @@ def trigger_agrupacion_manual(db: Session = Depends(get_db)):
     Returns:
         Resultado por zona con id de ruta generada, centroide y gravedad.
     """
-    from app.services.scheduler_service import ejecutar_agrupacion_todas_zonas
-    resultado = ejecutar_agrupacion_todas_zonas()
+    from app.services.ruta_service import RutaService
+    servicio = RutaService()
+    resultado = {"oriental": None, "occidental": None, "errores": []}
+
+    for zona in ("oriental", "occidental"):
+        try:
+            ruta = servicio.generar_ruta_automatica(db, zona)
+            if ruta:
+                resultado[zona] = {
+                    "ruta_id": ruta.id,
+                    "incidencias": len(
+                        [d for d in ruta.detalles if d.tipo_punto == "incidencia"]
+                    ),
+                    "suma_gravedad": ruta.suma_gravedad,
+                    "centroide_lat": ruta.centroide_lat,
+                    "centroide_lon": ruta.centroide_lon,
+                    "estado": ruta.estado,
+                }
+            else:
+                resultado[zona] = {"ruta_id": None, "motivo": "Sin incidencias validadas o umbral no superado"}
+        except Exception as exc:
+            mensaje = f"Error agrupando zona {zona}: {exc}"
+            resultado["errores"].append(mensaje)
+
     return {
         "mensaje": "Agrupación automática ejecutada",
         "timestamp": datetime.utcnow().isoformat(),
@@ -768,6 +790,108 @@ def obtener_navegacion_ruta(
             "incidencias_totales": sum(1 for p in puntos if p["tipo_punto"] == "incidencia"),
             "incidencias_completadas": sum(1 for p in puntos if p["tipo_punto"] == "incidencia" and p["completado"])
         }
+    }
+
+
+@router.get("/{ruta_id}/direcciones")
+def obtener_direcciones_turn_by_turn(
+    ruta_id: int,
+    lat_actual: float = Query(..., description="Latitud actual del dispositivo GPS"),
+    lon_actual: float = Query(..., description="Longitud actual del dispositivo GPS"),
+    punto_destino_orden: int = Query(..., description="Orden del punto de destino en la ruta"),
+    db: Session = Depends(get_db)
+):
+    """
+    Calcula instrucciones turn-by-turn desde la posición GPS actual
+    hasta el siguiente punto de la ruta usando OSRM Route API con steps=true.
+
+    Usado por la app móvil durante la navegación en tiempo real.
+    Se llama cada vez que la posición GPS cambia significativamente.
+
+    Returns:
+        Instrucciones paso a paso, distancia restante y tiempo estimado.
+    """
+    ruta = db.query(RutaGenerada).filter(RutaGenerada.id == ruta_id).first()
+    if not ruta:
+        raise HTTPException(status_code=404, detail=f"Ruta {ruta_id} no encontrada")
+
+    destino = db.query(RutaDetalle).filter(
+        RutaDetalle.ruta_id == ruta_id,
+        RutaDetalle.orden == punto_destino_orden
+    ).first()
+    if not destino:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Punto con orden {punto_destino_orden} no encontrado en ruta {ruta_id}"
+        )
+
+    osrm = OSRMService()
+    route_data = osrm.calculate_route(
+        coordinates=[(lon_actual, lat_actual), (destino.lon, destino.lat)],
+        overview="full",
+        geometries="geojson",
+        steps=True
+    )
+
+    if not route_data:
+        # Fallback sin OSRM: retornar datos básicos sin instrucciones
+        import math
+        def haversine_m(lon1, lat1, lon2, lat2):
+            R = 6371000
+            p = math.pi / 180
+            a = 0.5 - math.cos((lat2 - lat1) * p) / 2 + \
+                math.cos(lat1 * p) * math.cos(lat2 * p) * \
+                (1 - math.cos((lon2 - lon1) * p)) / 2
+            return 2 * R * math.asin(math.sqrt(a))
+
+        dist = haversine_m(lon_actual, lat_actual, destino.lon, destino.lat)
+        return {
+            "origen": {"lat": lat_actual, "lon": lon_actual},
+            "destino": {
+                "orden": destino.orden,
+                "tipo_punto": destino.tipo_punto,
+                "lat": destino.lat,
+                "lon": destino.lon
+            },
+            "distancia_metros": round(dist, 1),
+            "duracion_segundos": round(dist / 2.78),  # ~10 km/h
+            "instrucciones": [],
+            "osrm_disponible": False,
+            "advertencia": "OSRM no disponible — distancia estimada por línea recta"
+        }
+
+    # Extraer instrucciones del primer leg
+    instrucciones = []
+    legs = route_data.get("legs", [])
+    if legs:
+        for step in legs[0].get("steps", []):
+            maneuver = step.get("maneuver", {})
+            instrucciones.append({
+                "tipo": maneuver.get("type", ""),          # depart, turn, arrive, etc.
+                "modificador": maneuver.get("modifier", ""), # left, right, straight, etc.
+                "texto": step.get("name", ""),
+                "distancia_metros": round(step.get("distance", 0), 1),
+                "duracion_segundos": round(step.get("duration", 0), 1),
+                "coordenada": {
+                    "lon": maneuver.get("location", [None, None])[0],
+                    "lat": maneuver.get("location", [None, None])[1]
+                }
+            })
+
+    return {
+        "origen": {"lat": lat_actual, "lon": lon_actual},
+        "destino": {
+            "orden": destino.orden,
+            "tipo_punto": destino.tipo_punto,
+            "lat": destino.lat,
+            "lon": destino.lon,
+            "incidencia_id": destino.incidencia_id
+        },
+        "distancia_metros": round(route_data["distance"], 1),
+        "duracion_segundos": round(route_data["duration"], 1),
+        "geometry": route_data.get("geometry"),
+        "instrucciones": instrucciones,
+        "osrm_disponible": True
     }
 
 
