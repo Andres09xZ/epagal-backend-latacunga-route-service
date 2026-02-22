@@ -36,7 +36,7 @@ class Incidencia(Base):
     zona = Column(String(10))  # 'oriental' o 'occidental'
     ventana_inicio = Column(TIMESTAMP)
     ventana_fin = Column(TIMESTAMP)
-    estado = Column(String(15), default='pendiente')  # pendiente, asignada, completada, cancelada
+    estado = Column(String(15), default='emitido')  # emitido, recibido, validado, en_ejecucion, finalizado, rechazado
     reportado_en = Column(TIMESTAMP, default=datetime.utcnow)
     usuario_id = Column(Integer, nullable=True)
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
@@ -47,7 +47,7 @@ class Incidencia(Base):
         CheckConstraint("tipo IN ('acopio', 'zona_critica', 'animal_muerto')", name='check_tipo'),
         CheckConstraint("gravedad IN (1, 3, 5)", name='check_gravedad'),
         CheckConstraint("zona IN ('oriental', 'occidental')", name='check_zona'),
-        CheckConstraint("estado IN ('pendiente', 'validada', 'asignada', 'completada', 'cancelada')", name='check_estado'),
+        CheckConstraint("estado IN ('emitido', 'recibido', 'validado', 'en_ejecucion', 'finalizado', 'rechazado')", name='check_estado'),
     )
 
     # Relaciones

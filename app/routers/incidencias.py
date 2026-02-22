@@ -85,14 +85,14 @@ async def obtener_umbrales(db: Annotated[Session, Depends(get_db)]):
         func.coalesce(func.sum(Incidencia.gravedad), 0)
     ).filter(
         Incidencia.zona == "oriental",
-        Incidencia.estado == "validada"
+        Incidencia.estado == "validado"
     ).scalar()
     
     resultado_occidental = db.query(
         func.coalesce(func.sum(Incidencia.gravedad), 0)
     ).filter(
         Incidencia.zona == "occidental",
-        Incidencia.estado == "validada"
+        Incidencia.estado == "validado"
     ).scalar()
     
     suma_oriental = int(resultado_oriental) if resultado_oriental else 0
@@ -101,12 +101,12 @@ async def obtener_umbrales(db: Annotated[Session, Depends(get_db)]):
     # Contar incidencias validadas por zona
     count_oriental = db.query(Incidencia).filter(
         Incidencia.zona == "oriental",
-        Incidencia.estado == "validada"
+        Incidencia.estado == "validado"
     ).count()
     
     count_occidental = db.query(Incidencia).filter(
         Incidencia.zona == "occidental",
-        Incidencia.estado == "validada"
+        Incidencia.estado == "validado"
     ).count()
     
     return {
@@ -268,7 +268,7 @@ async def validar_incidencia(
     db: Annotated[Session, Depends(get_db)]
 ):
     """
-    Validar una incidencia (cambiar estado de pendiente a validada)
+    Validar una incidencia (cambiar estado de recibido a validado)
     
     Si al validar se supera el umbral de gravedad de la zona,
     se genera automáticamente una ruta optimizada.
@@ -278,7 +278,7 @@ async def validar_incidencia(
     if not incidencia:
         raise HTTPException(status_code=404, detail="Incidencia no encontrada")
     
-    if incidencia.estado not in ("pendiente", "emitido"):
+    if incidencia.estado not in ("emitido", "recibido"):
         raise HTTPException(
             status_code=400, 
             detail=f"No se puede validar una incidencia en estado '{incidencia.estado}'"

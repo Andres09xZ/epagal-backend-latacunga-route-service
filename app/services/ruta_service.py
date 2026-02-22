@@ -333,7 +333,7 @@ class RutaService:
         3. Asignar camiones según capacidad
         4. Calcular rutas óptimas para cada camión
         5. Crear registros en base de datos
-        6. Actualizar estado de incidencias a 'asignada'
+        6. Actualizar estado de incidencias a 'en_ejecucion'
         
         Args:
             db: Sesión de base de datos
@@ -347,7 +347,7 @@ class RutaService:
         # 1. Obtener incidencias validadas (listas para asignar a rutas)
         incidencias = db.query(Incidencia).filter(
             Incidencia.zona == zona,
-            Incidencia.estado == 'validada'
+            Incidencia.estado == 'validado'
         ).all()
         
         if not incidencias:
@@ -447,8 +447,8 @@ class RutaService:
                 db.add(detalle_incidencia)
                 orden_global += 1
                 
-                # Actualizar estado de incidencia a 'asignada'
-                inc.estado = 'asignada'
+                # Actualizar estado de incidencia a 'en_ejecucion'
+                inc.estado = 'en_ejecucion'
             
             # Último punto: Botadero
             tiempo_acum += timedelta(minutes=10)
@@ -547,11 +547,11 @@ class RutaService:
         query = db.query(Incidencia).filter(Incidencia.zona == zona)
         
         if incluir_asignadas:
-            # Incluir validadas y asignadas (pero solo si la ruta está 'planeada', no en ejecución)
-            query = query.filter(Incidencia.estado.in_(['validada', 'asignada']))
+            # Incluir validadas y en_ejecucion (pero solo si la ruta está 'planeada', no en ejecución)
+            query = query.filter(Incidencia.estado.in_(['validado', 'en_ejecucion']))
         else:
             # Solo validadas (listas para asignar)
-            query = query.filter(Incidencia.estado == 'validada')
+            query = query.filter(Incidencia.estado == 'validado')
         
         incidencias = query.all()
         return sum(inc.gravedad for inc in incidencias)
@@ -567,7 +567,7 @@ class RutaService:
         
         Proceso:
         1. Verificar si hay rutas planeadas en la zona
-        2. Liberar incidencias de rutas planeadas (volver a 'pendiente')
+        2. Liberar incidencias de rutas planeadas (volver a 'validado')
         3. Marcar rutas antiguas como canceladas
         4. Generar nueva ruta con todas las incidencias
         5. Notificar a conductores
@@ -604,8 +604,8 @@ class RutaService:
                             Incidencia.id == detalle.incidencia_id
                         ).first()
                         
-                        if incidencia and incidencia.estado == 'asignada':
-                            incidencia.estado = 'validada'  # Volver a validada, no a pendiente
+                        if incidencia and incidencia.estado == 'en_ejecucion':
+                            incidencia.estado = 'validado'  # Volver a validado
                             incidencias_liberadas += 1
                 
                 logger.info(f"Liberadas {incidencias_liberadas} incidencias de ruta {ruta.id}")

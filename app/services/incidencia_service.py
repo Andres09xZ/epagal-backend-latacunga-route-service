@@ -178,7 +178,7 @@ class IncidenciaService:
             zona=zona,
             ventana_inicio=ventana_inicio,
             ventana_fin=ventana_fin,
-            estado='pendiente',
+            estado='emitido',
             reportado_en=reportado_en,
             usuario_id=incidencia_data.usuario_id
         )
@@ -282,12 +282,12 @@ class IncidenciaService:
     ) -> List[Incidencia]:
         """Obtiene todas las incidencias VALIDADAS de una zona
 
-        Nota: Solo las incidencias con estado 'validada' son consideradas
+        Nota: Solo las incidencias con estado 'validado' son consideradas
         para la generación automática de rutas.
         """
         return db.query(Incidencia).filter(
             Incidencia.zona == zona,
-            Incidencia.estado == 'validada'
+            Incidencia.estado == 'validado'
         ).all()
 
     @staticmethod
@@ -297,7 +297,7 @@ class IncidenciaService:
     ) -> int:
         """Calcula la suma total de gravedad de incidencias validadas en una zona
 
-        Solo las incidencias validadas (estado='validada') cuentan para el umbral.
+        Solo las incidencias validadas (estado='validado') cuentan para el umbral.
         """
         incidencias = IncidenciaService.obtener_incidencias_validadas_por_zona(db, zona)
         return sum(inc.gravedad for inc in incidencias)
@@ -360,7 +360,7 @@ class IncidenciaService:
         Valida una incidencia y gestiona la generación automática de rutas
         
         LÓGICA MEJORADA PARA EVITAR SOLAPAMIENTO:
-        1. Valida la incidencia (pendiente → validada)
+        1. Valida la incidencia (recibido → validado)
         2. Verifica si hay rutas PLANEADAS en la zona
         3. Si hay rutas planeadas:
            - Calcula distancia a cada punto de cada ruta
@@ -381,13 +381,13 @@ class IncidenciaService:
         if not incidencia:
             raise ValueError(f"Incidencia {incidencia_id} no encontrada")
         
-        if incidencia.estado != 'pendiente':
+        if incidencia.estado not in ('emitido', 'recibido'):
             raise ValueError(
                 f"No se puede validar una incidencia en estado '{incidencia.estado}'"
             )
 
-        # Cambiar estado a validada
-        incidencia.estado = 'validada'
+        # Cambiar estado a validado
+        incidencia.estado = 'validado'
         db.commit()
         db.refresh(incidencia)
         
@@ -448,7 +448,7 @@ class IncidenciaService:
                     f"⚠️ NO se genera nueva ruta para evitar solapamiento. "
                     f"La incidencia queda validada para futuras rutas."
                 )
-                # No hacemos nada más, la incidencia queda en estado 'validada'
+                # No hacemos nada más, la incidencia queda en estado 'validado'
                 return incidencia, None
             
             # La incidencia está LEJOS de todas las rutas existentes
@@ -471,7 +471,7 @@ class IncidenciaService:
             # Calcular suma solo con incidencias validadas NO asignadas a rutas
             incidencias_disponibles = db.query(Incidencia).filter(
                 Incidencia.zona == zona,
-                Incidencia.estado == 'validada',
+                Incidencia.estado == 'validado',
                 ~Incidencia.id.in_(ids_en_rutas) if ids_en_rutas else True
             ).all()
             
@@ -549,10 +549,10 @@ class IncidenciaService:
     def obtener_estadisticas(db: Session) -> dict:
         """Obtiene estadísticas generales de incidencias"""
         total = db.query(Incidencia).count()
-        pendientes = db.query(Incidencia).filter(Incidencia.estado == 'pendiente').count()
-        validadas = db.query(Incidencia).filter(Incidencia.estado == 'validada').count()
-        asignadas = db.query(Incidencia).filter(Incidencia.estado == 'asignada').count()
-        completadas = db.query(Incidencia).filter(Incidencia.estado == 'completada').count()
+        pendientes = db.query(Incidencia).filter(Incidencia.estado == 'recibido').count()
+        validadas = db.query(Incidencia).filter(Incidencia.estado == 'validado').count()
+        asignadas = db.query(Incidencia).filter(Incidencia.estado == 'en_ejecucion').count()
+        completadas = db.query(Incidencia).filter(Incidencia.estado == 'finalizado').count()
         
         # Por tipo
         por_tipo = {}

@@ -16,12 +16,12 @@ class TipoIncidencia(str, Enum):
 
 class EstadoIncidencia(str, Enum):
     """Estados posibles de una incidencia"""
-    EMITIDO = "emitido"
-    PENDIENTE = "pendiente"
-    VALIDADA = "validada"  # Incidencia validada antes de asignarse
-    ASIGNADA = "asignada"
-    COMPLETADA = "completada"
-    CANCELADA = "cancelada"
+    EMITIDO = "emitido"          # Ciudadano reporta la incidencia
+    RECIBIDO = "recibido"        # Operador recibe y registra
+    VALIDADO = "validado"        # Operador valida la incidencia
+    EN_EJECUCION = "en_ejecucion"  # Conductor en camino / atendiendo
+    FINALIZADO = "finalizado"    # Incidencia atendida exitosamente
+    RECHAZADO = "rechazado"      # Incidencia rechazada/cancelada
 
 
 class ZonaIncidencia(str, Enum):

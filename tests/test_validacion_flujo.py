@@ -23,10 +23,10 @@ estados = db.query(
 for estado, count in estados:
     print(f"  • {estado.ljust(15)}: {count}")
 
-# 2. Buscar una incidencia pendiente para validar
-print("\n[2] Buscando incidencia pendiente para validar...")
+# 2. Buscar una incidencia recibida/emitida para validar
+print("\n[2] Buscando incidencia emitida para validar...")
 inc_pendiente = db.query(Incidencia).filter(
-    Incidencia.estado == 'pendiente'
+    Incidencia.estado == 'emitido'
 ).first()
 
 if inc_pendiente:
