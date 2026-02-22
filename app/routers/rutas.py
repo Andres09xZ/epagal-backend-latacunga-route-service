@@ -57,6 +57,8 @@ def generar_ruta_manual(
             "costo_total_metros": ruta.costo_total,
             "duracion_estimada": str(ruta.duracion_estimada),
             "estado": ruta.estado,
+            "centroide_lat": ruta.centroide_lat,
+            "centroide_lon": ruta.centroide_lon,
             "notas": ruta.notas
         }
     except Exception as e:
@@ -64,6 +66,56 @@ def generar_ruta_manual(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al generar ruta: {str(e)}"
         )
+
+
+@router.post("/trigger-agrupacion", status_code=status.HTTP_200_OK)
+def trigger_agrupacion_manual(db: Session = Depends(get_db)):
+    """
+    Dispara manualmente la agrupación automática de incidencias para ambas zonas (C1).
+
+    Ejecuta el mismo proceso que el scheduler periódico:
+    - Agrupa incidencias validadas por DBSCAN (C4)
+    - Genera rutas con centroide (C5)
+    - Almacena con estado 'planeada' (C7)
+
+    Returns:
+        Resultado por zona con id de ruta generada, centroide y gravedad.
+    """
+    from app.services.scheduler_service import ejecutar_agrupacion_todas_zonas
+    resultado = ejecutar_agrupacion_todas_zonas()
+    return {
+        "mensaje": "Agrupación automática ejecutada",
+        "timestamp": datetime.utcnow().isoformat(),
+        "resultado": resultado
+    }
+
+
+@router.get("/scheduler/estado")
+def estado_scheduler():
+    """
+    Devuelve el estado actual del scheduler periódico de agrupación (C1).
+
+    Returns:
+        activo: bool, proximo_disparo: ISO8601 o null, intervalo_minutos: int
+    """
+    from app.services.scheduler_service import estado_scheduler as _estado
+    return _estado()
+
+
+@router.post("/scheduler/reprogramar")
+def reprogramar_agrupacion(minutos: int = Query(..., ge=1, le=1440)):
+    """
+    Cambia el intervalo del scheduler periódico sin reiniciar la app (C1).
+
+    Args:
+        minutos: Nuevo intervalo en minutos (1–1440).
+    """
+    from app.services.scheduler_service import reprogramar_scheduler
+    reprogramar_scheduler(minutos)
+    return {
+        "mensaje": f"Scheduler reprogramado a {minutos} minutos",
+        "timestamp": datetime.utcnow().isoformat()
+    }
 
 
 @router.get("/{ruta_id}")
@@ -148,6 +200,8 @@ def obtener_ruta(
         "camiones_usados": ruta.camiones_usados,
         "duracion_estimada": str(ruta.duracion_estimada),
         "costo_total_metros": ruta.costo_total,
+        "centroide_lat": ruta.centroide_lat,
+        "centroide_lon": ruta.centroide_lon,
         "fecha_generacion": ruta.fecha_generacion,
         "puntos": puntos,
         "polyline": polyline

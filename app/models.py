@@ -72,6 +72,8 @@ class RutaGenerada(Base):
     duracion_estimada = Column(Interval)
     camiones_usados = Column(SmallInteger)
     estado = Column(String(15), default='planeada')  # planeada, asignada, en_ejecucion, completada
+    centroide_lat = Column(Float, nullable=True)   # C5: latitud del centroide del cluster
+    centroide_lon = Column(Float, nullable=True)   # C5: longitud del centroide del cluster
     notas = Column(Text)
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
     updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)

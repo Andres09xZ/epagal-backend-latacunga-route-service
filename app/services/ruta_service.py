@@ -6,6 +6,10 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
 import logging
+import math
+
+import numpy as np
+from sklearn.cluster import DBSCAN
 
 from app.models import (
     Incidencia, RutaGenerada, RutaDetalle, 
@@ -26,6 +30,9 @@ class RutaService:
     
     # Umbral por defecto si no está configurado
     UMBRAL_DEFAULT = 20
+
+    # Radio de clustering por defecto (km) — C4
+    RADIO_CLUSTERING_DEFAULT = 3.0
     
     def __init__(self, osrm_service: Optional[OSRMService] = None):
         self.osrm = osrm_service or OSRMService()
@@ -221,6 +228,97 @@ class RutaService:
             "botadero": botadero
         }
     
+    @staticmethod
+    def obtener_radio_clustering(db: Session) -> float:
+        """Obtiene el radio de clustering en km desde la configuración (C4)"""
+        config = db.query(Config).filter(Config.clave == 'radio_clustering_km').first()
+        if config:
+            try:
+                return float(config.valor)
+            except (ValueError, TypeError):
+                pass
+        return RutaService.RADIO_CLUSTERING_DEFAULT
+
+    def agrupar_por_clustering(
+        self,
+        db: Session,
+        incidencias: List[Incidencia]
+    ) -> List[List[Incidencia]]:
+        """
+        Agrupa incidencias por proximidad geográfica usando DBSCAN (C4).
+
+        Utiliza la distancia Haversine convertida a radianes para el eps de DBSCAN.
+        El radio máximo de cada cluster es configurable via Config 'radio_clustering_km'.
+
+        Args:
+            db: Sesión de base de datos
+            incidencias: Lista de incidencias validadas a agrupar
+
+        Returns:
+            Lista de clusters; cada cluster es una lista de incidencias.
+            Las incidencias marcadas como ruido (etiqueta -1) se agrupan en un
+            cluster adicional de desbordamiento para no descartarlas.
+        """
+        if not incidencias:
+            return []
+
+        if len(incidencias) == 1:
+            return [incidencias]
+
+        # Radio en km → convertir a radianes para métrica haversine de sklearn
+        radio_km = self.obtener_radio_clustering(db)
+        # Radio de la Tierra ≈ 6371 km
+        eps_rad = radio_km / 6371.0
+
+        # Construir matriz (lat, lon) en radianes
+        coordenadas = np.radians(
+            [(inc.lat, inc.lon) for inc in incidencias]
+        )
+
+        db_scan = DBSCAN(
+            eps=eps_rad,
+            min_samples=1,           # Un solo punto ya forma un cluster
+            algorithm='ball_tree',
+            metric='haversine'
+        )
+        etiquetas = db_scan.fit_predict(coordenadas)
+
+        # Agrupar por etiqueta
+        clusters: Dict[int, List[Incidencia]] = {}
+        for inc, etiqueta in zip(incidencias, etiquetas):
+            clusters.setdefault(etiqueta, []).append(inc)
+
+        # Las etiquetas ≥ 0 son clusters válidos; -1 son ruido (outliers)
+        resultado = [v for k, v in sorted(clusters.items()) if k >= 0]
+
+        # Si hay ruido, añadir como cluster de desbordamiento
+        if -1 in clusters:
+            resultado.append(clusters[-1])
+            logger.info(
+                f"DBSCAN: {len(clusters[-1])} incidencia(s) marcadas como ruido "
+                "agrupadas en cluster de desbordamiento"
+            )
+
+        logger.info(
+            f"DBSCAN clustering: {len(incidencias)} incidencias → "
+            f"{len(resultado)} clusters (radio={radio_km}km)"
+        )
+        return resultado
+
+    @staticmethod
+    def calcular_centroide(incidencias: List[Incidencia]) -> Tuple[float, float]:
+        """
+        Calcula el centroide geográfico (media aritmética) de un grupo de incidencias (C5).
+
+        Returns:
+            Tuple (lat, lon) del centroide.
+        """
+        if not incidencias:
+            return (0.0, 0.0)
+        lat_mean = sum(inc.lat for inc in incidencias) / len(incidencias)
+        lon_mean = sum(inc.lon for inc in incidencias) / len(incidencias)
+        return (round(lat_mean, 6), round(lon_mean, 6))
+
     def generar_ruta_automatica(
         self,
         db: Session,
@@ -255,10 +353,22 @@ class RutaService:
         if not incidencias:
             logger.warning(f"No hay incidencias validadas en zona {zona}")
             return None
-        
+
+        # 1b. Agrupar incidencias por cercanía (C4 — DBSCAN)
+        clusters = self.agrupar_por_clustering(db, incidencias)
+
+        # Si hay múltiples clusters, generar una ruta por cluster dominante
+        # (el de mayor suma de gravedad), y encolar los demás para futura ejecución.
+        # Por ahora tomamos el cluster con mayor gravedad acumulada como el principal.
+        cluster_principal = max(clusters, key=lambda c: sum(inc.gravedad for inc in c))
+        incidencias = cluster_principal
+
         # 2. Calcular suma de gravedad
         suma_gravedad = sum(inc.gravedad for inc in incidencias)
-        logger.info(f"Suma de gravedad en zona {zona}: {suma_gravedad}")
+        logger.info(f"Cluster principal zona {zona}: {len(incidencias)} incidencias, gravedad={suma_gravedad}")
+
+        # 2b. Calcular centroide del cluster (C5)
+        centroide_lat, centroide_lon = self.calcular_centroide(incidencias)
         
         # 3. Asignar camiones
         asignacion_camiones = self.asignar_camiones(incidencias)
@@ -272,6 +382,8 @@ class RutaService:
             duracion_estimada=timedelta(seconds=0),  # Se actualizará después
             camiones_usados=len(asignacion_camiones),
             estado='planeada',
+            centroide_lat=centroide_lat,    # C5
+            centroide_lon=centroide_lon,    # C5
             notas=f"Ruta generada automáticamente por umbral. {len(incidencias)} incidencias, {len(asignacion_camiones)} camiones"
         )
         

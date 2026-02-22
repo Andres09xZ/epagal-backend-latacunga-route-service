@@ -2,7 +2,7 @@
 Aplicación principal FastAPI
 Sistema de Gestión de Incidencias - EPAGAL Latacunga
 ENDPOINTS: /api/incidencias, /api/operadores, /api/horarios, /api/tracking
-v2.0.2 - Rate limiting, security headers, DevSecOps hardening
+v2.1.0 - Rate limiting, security headers, DevSecOps hardening, auto-clustering scheduler
 """
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -47,7 +47,7 @@ limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
 app = FastAPI(
     title="Sistema de Gestión de Incidencias - EPAGAL Latacunga",
     description="API para gestión de reportes ciudadanos, rutas optimizadas y tracking GPS en tiempo real",
-    version="2.0.2",
+    version="2.1.0",
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -149,7 +149,7 @@ def root():
     """Endpoint raíz - Información básica de la API"""
     return {
         "message": "API Sistema de Gestión de Incidencias - EPAGAL Latacunga",
-        "version": "2.0.2",
+        "version": "2.1.0",
         "docs": "/docs",
         "redoc": "/redoc",
         "dashboard": "/dashboard/" if os.path.exists(dashboard_path) else "No disponible",
@@ -189,7 +189,7 @@ def health_check():
     return {
         "status": overall_status,
         "service": "EPAGAL Backend - Sistema de Gestión de Incidencias",
-        "version": "2.0.2",
+        "version": "2.1.0",
         "timestamp": datetime.utcnow().isoformat(),
         "environment": environment,
         "python_version": platform.python_version(),
@@ -199,3 +199,27 @@ def health_check():
             "api": "ok"
         }
     }
+
+
+# ── Lifecycle: scheduler periódico de agrupación (C1) ────────
+
+@app.on_event("startup")
+async def startup_event():
+    """Arranca el scheduler de agrupación automática al iniciar la app (C1)."""
+    try:
+        from app.services.scheduler_service import iniciar_scheduler
+        iniciar_scheduler()
+        logger.info("Scheduler de agrupación automática iniciado")
+    except Exception as exc:
+        logger.error("No se pudo iniciar el scheduler: %s", exc)
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Detiene el scheduler al apagar la app."""
+    try:
+        from app.services.scheduler_service import detener_scheduler
+        detener_scheduler()
+        logger.info("Scheduler detenido correctamente")
+    except Exception as exc:
+        logger.warning("Error al detener el scheduler: %s", exc)
