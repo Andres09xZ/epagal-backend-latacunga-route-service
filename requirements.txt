@@ -27,7 +27,7 @@ python-socketio==5.10.*  # Socket.IO para compatibilidad bidireccional
 haversine==2.8.*         # Cálculo rápido de distancias GPS
 
 # Testing y BDD
-pytest==7.4.*            # Framework de testing
+pytest==9.0.*            # Framework de testing
 pytest-bdd==6.1.*        # BDD con sintaxis Gherkin
 pytest-asyncio==0.21.*   # Para tests asíncronos de FastAPI
 httpx==0.25.*            # Cliente HTTP async para tests
