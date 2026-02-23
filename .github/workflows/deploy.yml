@@ -143,7 +143,7 @@ jobs:
       
       - name: Deploy to Render with automatic retry and monitoring
         id: render_deploy
-        uses: JorgeLNJunior/render-deploy@v1.4.7
+        uses: JorgeLNJunior/render-deploy@v1.5.0
         continue-on-error: true
         with:
           service_id: ${{ secrets.RENDER_SERVICE_ID }}
