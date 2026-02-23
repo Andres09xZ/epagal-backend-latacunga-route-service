@@ -15,7 +15,7 @@ geoalchemy2==0.15.*      # Para trabajar con geometrías PostGIS
 pyproj==3.7.*            # Para conversiones de coordenadas UTM (3.7+ tiene wheels para Windows)
 passlib[bcrypt]==1.7.*   # Para hash de contraseñas con bcrypt
 python-jose[cryptography]==3.3.*  # Para JWT tokens
-email-validator==2.1.*   # Para validación de emails en Pydantic
+email-validator==2.3.*   # Para validación de emails en Pydantic
 slowapi==0.1.*           # Rate limiting para protección contra DDoS y fuerza bruta
 APScheduler>=3.10.0,<4.0  # Scheduler periódico para agrupación automática de incidencias
 scikit-learn==1.5.*      # DBSCAN clustering espacial de incidencias por distancia
