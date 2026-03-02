@@ -132,7 +132,7 @@ jobs:
 
       - name: Subir reporte de auditoría
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: dependency-audit-report
           path: pip-audit-report.json
@@ -311,7 +311,7 @@ jobs:
 
       - name: Subir reportes SAST
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: sast-reports
           path: |
@@ -832,7 +832,7 @@ jobs:
 
       - name: Subir reporte Trivy
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: trivy-security-report
           path: trivy-results.sarif
@@ -962,7 +962,7 @@ jobs:
 
       - name: Subir reporte ZAP
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: zap-scan-report
           path: report_html.html
